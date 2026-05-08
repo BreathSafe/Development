@@ -174,6 +174,59 @@ INSERT INTO devices (device_id, name, location, latitude, longitude)
 VALUES ('AW-001', 'AirWatch Main Station', 'Your Location', 8.4542, 124.6319)
 ON CONFLICT (device_id) DO NOTHING;
 
+-- 17. System users table for admin dashboard login
+CREATE TABLE IF NOT EXISTS system_users (
+  id            BIGSERIAL PRIMARY KEY,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  user_id       TEXT NOT NULL UNIQUE,
+  name          TEXT NOT NULL,
+  email         TEXT NOT NULL UNIQUE,
+  role          TEXT CHECK (role IN ('admin', 'management', 'viewer')) DEFAULT 'viewer',
+  dept          TEXT DEFAULT 'General',
+  status        TEXT DEFAULT 'active' CHECK (status IN ('active', 'inactive')),
+  phone_number  TEXT,
+  last_login    TIMESTAMPTZ
+);
+
+-- 18. Indexes for system_users
+CREATE INDEX IF NOT EXISTS idx_system_users_email
+  ON system_users(email);
+CREATE INDEX IF NOT EXISTS idx_system_users_status
+  ON system_users(status);
+
+-- 19. Enable RLS on system_users
+ALTER TABLE system_users ENABLE ROW LEVEL SECURITY;
+
+-- 20. RLS Policies for system_users
+CREATE POLICY "allow_anon_select_system_users"
+  ON system_users
+  FOR SELECT
+  TO anon
+  USING (true);
+
+CREATE POLICY "allow_anon_insert_system_users"
+  ON system_users
+  FOR INSERT
+  TO anon
+  WITH CHECK (true);
+
+CREATE POLICY "allow_anon_update_system_users"
+  ON system_users
+  FOR UPDATE
+  TO anon
+  USING (true);
+
+CREATE POLICY "allow_anon_delete_system_users"
+  ON system_users
+  FOR DELETE
+  TO anon
+  USING (true);
+
+-- 21. Insert default admin user
+INSERT INTO system_users (user_id, name, email, role, dept, status)
+VALUES ('USR-001', 'Admin User', 'admin@breathsafe.com', 'admin', 'System', 'active')
+ON CONFLICT (email) DO NOTHING;
+
 -- ============================================================
 --  HOW TO GET YOUR CREDENTIALS (for the Arduino sketch)
 -- ============================================================

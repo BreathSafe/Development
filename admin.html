@@ -909,6 +909,184 @@ const Database = {
       console.error('Error updating last alert:', error);
       return false;
     }
+  },
+
+  // ═══════════════════════════════════════════
+  // SYSTEM USERS CRUD
+  // ═══════════════════════════════════════════
+  async getSystemUsers() {
+    try {
+      const response = await fetch(
+        `${SUPABASE_CONFIG.url}/rest/v1/system_users?order=created_at.desc`,
+        {
+          headers: {
+            'apikey': SUPABASE_CONFIG.anonKey,
+            'Authorization': `Bearer ${SUPABASE_CONFIG.anonKey}`
+          }
+        }
+      );
+      
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      return await response.json();
+    } catch (error) {
+      console.error('Error fetching system users:', error);
+      return [];
+    }
+  },
+
+  async createSystemUser(userData) {
+    try {
+      const response = await fetch(
+        `${SUPABASE_CONFIG.url}/rest/v1/system_users`,
+        {
+          method: 'POST',
+          headers: {
+            'apikey': SUPABASE_CONFIG.anonKey,
+            'Authorization': `Bearer ${SUPABASE_CONFIG.anonKey}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(userData)
+        }
+      );
+      
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      return await response.json();
+    } catch (error) {
+      console.error('Error creating system user:', error);
+      throw error;
+    }
+  },
+
+  async updateSystemUser(userId, userData) {
+    try {
+      const response = await fetch(
+        `${SUPABASE_CONFIG.url}/rest/v1/system_users?id=eq.${userId}`,
+        {
+          method: 'PATCH',
+          headers: {
+            'apikey': SUPABASE_CONFIG.anonKey,
+            'Authorization': `Bearer ${SUPABASE_CONFIG.anonKey}`,
+            'Content-Type': 'application/json',
+            'Prefer': 'return=minimal'
+          },
+          body: JSON.stringify(userData)
+        }
+      );
+      
+      return response.ok;
+    } catch (error) {
+      console.error('Error updating system user:', error);
+      return false;
+    }
+  },
+
+  async deleteSystemUser(userId) {
+    try {
+      const response = await fetch(
+        `${SUPABASE_CONFIG.url}/rest/v1/system_users?id=eq.${userId}`,
+        {
+          method: 'DELETE',
+          headers: {
+            'apikey': SUPABASE_CONFIG.anonKey,
+            'Authorization': `Bearer ${SUPABASE_CONFIG.anonKey}`
+          }
+        }
+      );
+      
+      return response.ok;
+    } catch (error) {
+      console.error('Error deleting system user:', error);
+      return false;
+    }
+  },
+
+  // ═══════════════════════════════════════════
+  // DEVICES CRUD
+  // ═══════════════════════════════════════════
+  async getDevices() {
+    try {
+      const response = await fetch(
+        `${SUPABASE_CONFIG.url}/rest/v1/${SUPABASE_CONFIG.devicesTable}?order=created_at.desc`,
+        {
+          headers: {
+            'apikey': SUPABASE_CONFIG.anonKey,
+            'Authorization': `Bearer ${SUPABASE_CONFIG.anonKey}`
+          }
+        }
+      );
+      
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      return await response.json();
+    } catch (error) {
+      console.error('Error fetching devices:', error);
+      return [];
+    }
+  },
+
+  async createDevice(deviceData) {
+    try {
+      const response = await fetch(
+        `${SUPABASE_CONFIG.url}/rest/v1/${SUPABASE_CONFIG.devicesTable}`,
+        {
+          method: 'POST',
+          headers: {
+            'apikey': SUPABASE_CONFIG.anonKey,
+            'Authorization': `Bearer ${SUPABASE_CONFIG.anonKey}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(deviceData)
+        }
+      );
+      
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      return await response.json();
+    } catch (error) {
+      console.error('Error creating device:', error);
+      throw error;
+    }
+  },
+
+  async updateDevice(deviceId, deviceData) {
+    try {
+      const response = await fetch(
+        `${SUPABASE_CONFIG.url}/rest/v1/${SUPABASE_CONFIG.devicesTable}?id=eq.${deviceId}`,
+        {
+          method: 'PATCH',
+          headers: {
+            'apikey': SUPABASE_CONFIG.anonKey,
+            'Authorization': `Bearer ${SUPABASE_CONFIG.anonKey}`,
+            'Content-Type': 'application/json',
+            'Prefer': 'return=minimal'
+          },
+          body: JSON.stringify(deviceData)
+        }
+      );
+      
+      return response.ok;
+    } catch (error) {
+      console.error('Error updating device:', error);
+      return false;
+    }
+  },
+
+  async deleteDevice(deviceId) {
+    try {
+      const response = await fetch(
+        `${SUPABASE_CONFIG.url}/rest/v1/${SUPABASE_CONFIG.devicesTable}?id=eq.${deviceId}`,
+        {
+          method: 'DELETE',
+          headers: {
+            'apikey': SUPABASE_CONFIG.anonKey,
+            'Authorization': `Bearer ${SUPABASE_CONFIG.anonKey}`
+          }
+        }
+      );
+      
+      return response.ok;
+    } catch (error) {
+      console.error('Error deleting device:', error);
+      return false;
+    }
   }
 };
 
@@ -1359,73 +1537,125 @@ function viewAllReadings() {
 // ═══════════════════════════════════════════
 // DEVICES FUNCTIONS
 // ═══════════════════════════════════════════
-function loadDevices() {
+async function loadDevices() {
   const table = document.getElementById('devices-table');
-  table.innerHTML = `
-    <thead>
-      <tr>
-        <th>Device ID</th>
-        <th>Name</th>
-        <th>Location</th>
-        <th>Status</th>
-        <th>AQI</th>
-        <th>Battery</th>
-        <th>Actions</th>
-      </tr>
-    </thead>
-    <tbody>
-      ${devices.map(device => `
+  table.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--text2);padding:20px;">Loading devices from database...</td></tr>';
+  
+  try {
+    // Fetch devices from database
+    const dbDevices = await Database.getDevices();
+    
+    // Update local devices array with database data
+    if (dbDevices && dbDevices.length > 0) {
+      devices = dbDevices.map(d => ({
+        id: d.device_id,
+        name: d.name,
+        location: d.location,
+        lat: d.latitude,
+        lng: d.longitude,
+        status: d.status,
+        aqi: 0,
+        temp: 0,
+        hum: 0,
+        battery: 100
+      }));
+    }
+    
+    table.innerHTML = `
+      <thead>
         <tr>
-          <td style="font-family:var(--mono);">${device.id}</td>
-          <td>${device.name}</td>
-          <td>${device.location}</td>
-          <td><span class="status-badge status-${device.status}">${device.status}</span></td>
-          <td>${device.aqi || '--'}</td>
-          <td>${device.battery || '--'}%</td>
-          <td>
-            <button class="btn btn-ghost btn-sm" onclick="editDevice('${device.id}')">Edit</button>
-            <button class="btn btn-danger btn-sm" onclick="deleteDevice('${device.id}')">Delete</button>
-          </td>
+          <th>Device ID</th>
+          <th>Name</th>
+          <th>Location</th>
+          <th>Status</th>
+          <th>Last Seen</th>
+          <th>Actions</th>
         </tr>
-      `).join('')}
-    </tbody>
-  `;
+      </thead>
+      <tbody>
+        ${devices.length > 0 ? devices.map(device => `
+          <tr>
+            <td style="font-family:var(--mono);">${device.id}</td>
+            <td>${device.name}</td>
+            <td>${device.location}</td>
+            <td><span class="status-badge status-${device.status}">${device.status}</span></td>
+            <td style="font-size:11px;color:var(--text2);">${device.lastSeen || 'Never'}</td>
+            <td>
+              <button class="btn btn-ghost btn-sm" onclick="editDevice('${device.id}')">Edit</button>
+              <button class="btn btn-danger btn-sm" onclick="deleteDevice('${device.id}')">Delete</button>
+            </td>
+          </tr>
+        `).join('') : '<tr><td colspan="6" style="text-align:center;color:var(--text2);padding:20px;">No devices found. Add your first device!</td></tr>'}
+      </tbody>
+    `;
+    
+    console.log(`✅ Loaded ${devices.length} devices from database`);
+  } catch (error) {
+    console.error('Error loading devices:', error);
+    table.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--red);padding:20px;">Error loading devices from database</td></tr>';
+  }
 }
 
 // ═══════════════════════════════════════════
 // USERS FUNCTIONS
 // ═══════════════════════════════════════════
-function loadUsers() {
+async function loadUsers() {
   const table = document.getElementById('users-table');
-  table.innerHTML = `
-    <thead>
-      <tr>
-        <th>User ID</th>
-        <th>Name</th>
-        <th>Email</th>
-        <th>Role</th>
-        <th>Department</th>
-        <th>Status</th>
-        <th>Actions</th>
-      </tr>
-    </thead>
-    <tbody>
-      ${users.map(user => `
+  table.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--text2);padding:20px;">Loading users from database...</td></tr>';
+  
+  try {
+    // Fetch users from database
+    const dbUsers = await Database.getSystemUsers();
+    
+    // Update local users array with database data
+    if (dbUsers && dbUsers.length > 0) {
+      users = dbUsers.map(u => ({
+        id: u.user_id,
+        name: u.name,
+        email: u.email,
+        role: u.role,
+        dept: u.dept,
+        status: u.status,
+        phone: u.phone_number,
+        created: u.created_at ? new Date(u.created_at).toISOString().split('T')[0] : ''
+      }));
+    }
+    
+    table.innerHTML = `
+      <thead>
         <tr>
-          <td style="font-family:var(--mono);">${user.id}</td>
-          <td>${user.name}</td>
-          <td>${user.email}</td>
-          <td><span class="status-badge">${user.role}</span></td>
-          <td>${user.dept}</td>
-          <td><span class="status-badge status-${user.status}">${user.status}</span></td>
-          <td>
-            <button class="btn btn-ghost btn-sm" onclick="editUser('${user.id}')">Edit</button>
-            <button class="btn btn-danger btn-sm" onclick="deleteUser('${user.id}')">Delete</button>
-          </td>
+          <th>User ID</th>
+          <th>Name</th>
+          <th>Email</th>
+          <th>Role</th>
+          <th>Department</th>
+          <th>Status</th>
+          <th>Actions</th>
         </tr>
-      `).join('')}
-    </tbody>
-  `;
+      </thead>
+      <tbody>
+        ${users.length > 0 ? users.map(user => `
+          <tr>
+            <td style="font-family:var(--mono);">${user.id}</td>
+            <td>${user.name}</td>
+            <td>${user.email}</td>
+            <td><span class="status-badge">${user.role}</span></td>
+            <td>${user.dept}</td>
+            <td><span class="status-badge status-${user.status}">${user.status}</span></td>
+            <td>
+              <button class="btn btn-ghost btn-sm" onclick="editUser('${user.id}')">Edit</button>
+              <button class="btn btn-danger btn-sm" onclick="deleteUser('${user.id}')">Delete</button>
+            </td>
+          </tr>
+        `).join('') : '<tr><td colspan="7" style="text-align:center;color:var(--text2);padding:20px;">No users found. Add your first user!</td></tr>'}
+      </tbody>
+    `;
+    
+    console.log(`✅ Loaded ${users.length} users from database`);
+  } catch (error) {
+    console.error('Error loading users:', error);
+    table.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--red);padding:20px;">Error loading users from database</td></tr>';
+  }
   
   // Also load SMS notification users
   loadSMSUsers();
@@ -1836,86 +2066,117 @@ function showAddDeviceModal() {
 // ═══════════════════════════════════════════
 // SAVE FUNCTIONS
 // ═══════════════════════════════════════════
-function saveUser() {
+async function saveUser() {
   const name = document.getElementById('user-name').value;
   const email = document.getElementById('user-email').value;
   const role = document.getElementById('user-role').value;
   const dept = document.getElementById('user-dept').value;
+  const phone = document.getElementById('user-phone')?.value || '';
   
   if (!name || !email) {
     alert('Please fill in all required fields');
     return;
   }
   
-  const newUser = {
-    id: `USR-${String(users.length + 1).padStart(3, '0')}`,
-    name,
-    email,
-    role,
-    dept,
-    status: 'active',
-    created: new Date().toISOString().split('T')[0]
-  };
-  
-  users.push(newUser);
-  systemActivity.unshift({
-    type: 'success',
-    msg: `New user added: ${name}`,
-    time: 'Just now'
-  });
-  
-  closeModal('user-modal');
-  loadUsers();
-  loadOverview();
-  
-  // Clear form
-  document.getElementById('user-name').value = '';
-  document.getElementById('user-email').value = '';
-  document.getElementById('user-dept').value = '';
+  try {
+    // Create user in database
+    const userData = {
+      user_id: `USR-${String(users.length + 1).padStart(3, '0')}`,
+      name: name,
+      email: email,
+      role: role,
+      dept: dept,
+      status: 'active',
+      phone_number: phone
+    };
+    
+    await Database.createSystemUser(userData);
+    
+    systemActivity.unshift({
+      type: 'success',
+      msg: `New user added to database: ${name}`,
+      time: 'Just now'
+    });
+    
+    closeModal('user-modal');
+    await loadUsers();
+    loadOverview();
+    
+    // Clear form
+    document.getElementById('user-name').value = '';
+    document.getElementById('user-email').value = '';
+    document.getElementById('user-dept').value = '';
+    if (document.getElementById('user-phone')) document.getElementById('user-phone').value = '';
+    
+    alert('✅ User created successfully in database!');
+  } catch (error) {
+    console.error('Error creating user:', error);
+    alert('❌ Error creating user: ' + error.message);
+  }
 }
 
-function saveDevice() {
+async function saveDevice() {
   const name = document.getElementById('device-name').value;
   const id = document.getElementById('device-id').value;
   const location = document.getElementById('device-location').value;
-  const lat = parseFloat(document.getElementById('device-lat').value);
-  const lng = parseFloat(document.getElementById('device-lng').value);
+  const lat = parseFloat(document.getElementById('device-lat').value) || 8.4542;
+  const lng = parseFloat(document.getElementById('device-lng').value) || 124.6319;
   
   if (!name || !id || !location) {
     alert('Please fill in all required fields');
     return;
   }
   
-  const newDevice = {
-    id,
-    name,
-    location,
-    lat,
-    lng,
-    status: 'online',
-    aqi: 0,
-    temp: 0,
-    hum: 0,
-    battery: 100
-  };
-  
-  devices.push(newDevice);
-  systemActivity.unshift({
-    type: 'success',
-    msg: `New device added: ${name}`,
-    time: 'Just now'
-  });
-  
-  closeModal('device-modal');
-  loadDevices();
-  loadOverview();
-  
-  // Clear form
-  document.getElementById('device-name').value = '';
-  document.getElementById('device-id').value = '';
-  document.getElementById('device-location').value = '';
-  document.getElementById('device-lat').value = '';
-  document.getElementById('device-lng').value = '';
+  try {
+    // Create device in database
+    const deviceData = {
+      device_id: id,
+      name: name,
+      location: location,
+      latitude: lat,
+      longitude: lng,
+      status: 'active'
+    };
+    
+    await Database.createDevice(deviceData);
+    
+    // Add to local array
+    const newDevice = {
+      id,
+      name,
+      location,
+      lat,
+      lng,
+      status: 'online',
+      aqi: 0,
+      temp: 0,
+      hum: 0,
+      battery: 100
+    };
+    devices.push(newDevice);
+    
+    systemActivity.unshift({
+      type: 'success',
+      msg: `New device added to database: ${name}`,
+      time: 'Just now'
+    });
+    
+    closeModal('device-modal');
+    await loadDevices();
+    loadOverview();
+    
+    // Clear form
+    document.getElementById('device-name').value = '';
+    document.getElementById('device-id').value = '';
+    document.getElementById('device-location').value = '';
+    document.getElementById('device-lat').value = '';
+    document.getElementById('device-lng').value = '';
+    
+    alert('✅ Device created successfully in database!');
+  } catch (error) {
+    console.error('Error creating device:', error);
+    alert('❌ Error creating device: ' + error.message);
+  }
 }
 
 function saveSettings() {
@@ -1969,16 +2230,39 @@ function editDevice(id) {
   }
 }
 
-function deleteDevice(id) {
-  if (confirm('Are you sure you want to delete this device?')) {
-    devices = devices.filter(d => d.id !== id);
+async function deleteDevice(deviceId) {
+  if (!confirm('Are you sure you want to delete this device?')) {
+    return;
+  }
+  
+  try {
+    // Find the database ID for this device
+    const dbDevices = await Database.getDevices();
+    const dbDevice = dbDevices.find(d => d.device_id === deviceId);
+    
+    if (dbDevice) {
+      const success = await Database.deleteDevice(dbDevice.id);
+      if (!success) {
+        throw new Error('Failed to delete from database');
+      }
+    }
+    
+    // Remove from local array
+    devices = devices.filter(d => d.id !== deviceId);
+    
     systemActivity.unshift({
       type: 'warn',
-      msg: `Device deleted: ${id}`,
+      msg: `Device deleted from database: ${deviceId}`,
       time: 'Just now'
     });
-    loadDevices();
+    
+    await loadDevices();
     loadOverview();
+    
+    alert('✅ Device deleted successfully from database!');
+  } catch (error) {
+    console.error('Error deleting device:', error);
+    alert('❌ Error deleting device: ' + error.message);
   }
 }
 
@@ -1995,16 +2279,46 @@ function editUser(id) {
   }
 }
 
-function deleteUser(id) {
-  if (confirm('Are you sure you want to delete this user?')) {
-    users = users.filter(u => u.id !== id);
+async function deleteUser(userId) {
+  if (!confirm('Are you sure you want to delete this user?')) {
+    return;
+  }
+  
+  try {
+    // Find the database ID for this user
+    const user = users.find(u => u.id === userId);
+    if (!user) {
+      alert('User not found');
+      return;
+    }
+    
+    // Delete from database - need to get the actual database ID
+    const dbUsers = await Database.getSystemUsers();
+    const dbUser = dbUsers.find(u => u.user_id === userId);
+    
+    if (dbUser) {
+      const success = await Database.deleteSystemUser(dbUser.id);
+      if (!success) {
+        throw new Error('Failed to delete from database');
+      }
+    }
+    
+    // Remove from local array
+    users = users.filter(u => u.id !== userId);
+    
     systemActivity.unshift({
       type: 'warn',
-      msg: `User deleted: ${id}`,
+      msg: `User deleted from database: ${userId}`,
       time: 'Just now'
     });
-    loadUsers();
+    
+    await loadUsers();
     loadOverview();
+    
+    alert('✅ User deleted successfully from database!');
+  } catch (error) {
+    console.error('Error deleting user:', error);
+    alert('❌ Error deleting user: ' + error.message);
   }
 }
 
