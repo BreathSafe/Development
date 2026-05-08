@@ -318,6 +318,28 @@ html, body { height: 100%; overflow: hidden; font-family: var(--font); backgroun
             </div>
           </div>
         </div>
+
+        <!-- CHARTS ROW -->
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 16px;">
+          <div class="card">
+            <div class="card-head">
+              <span class="card-title">📈 AQI Trend</span>
+              <span style="font-size:11px;color:var(--text2);">Last 20 readings</span>
+            </div>
+            <div class="card-body">
+              <div style="height:200px;position:relative;"><canvas id="overview-aqi-chart"></canvas></div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-head">
+              <span class="card-title">🌡️ Temperature &amp; Humidity</span>
+              <span style="font-size:11px;color:var(--text2);">Last 20 readings</span>
+            </div>
+            <div class="card-body">
+              <div style="height:200px;position:relative;"><canvas id="overview-env-chart"></canvas></div>
+            </div>
+          </div>
+        </div>
         
         <!-- COMPLETE ARDUINO READINGS TABLE -->
         <div class="card" style="margin-top: 16px;">
@@ -352,53 +374,7 @@ html, body { height: 100%; overflow: hidden; font-family: var(--font); backgroun
           </div>
         </div>
         
-        <!-- DETAILED SENSOR DISPLAY -->
-        <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-top: 16px;">
-          <div class="card">
-            <div class="card-head" style="background: var(--bg3);">
-              <span class="card-title" style="font-size: 12px;">🌡️ Temperature History</span>
-            </div>
-            <div class="card-body">
-              <div id="temp-history" style="font-size: 24px; font-weight: 700; color: var(--orange); font-family: var(--mono);">--°C</div>
-              <div style="font-size: 11px; color: var(--text2); margin-top: 4px;">Avg: <span id="temp-avg">--</span>°C</div>
-              <div style="font-size: 11px; color: var(--text2);">Range: <span id="temp-range">--</span>°C</div>
-            </div>
-          </div>
-          
-          <div class="card">
-            <div class="card-head" style="background: var(--bg3);">
-              <span class="card-title" style="font-size: 12px;">💧 Humidity History</span>
-            </div>
-            <div class="card-body">
-              <div id="hum-history" style="font-size: 24px; font-weight: 700; color: var(--teal); font-family: var(--mono);">--%</div>
-              <div style="font-size: 11px; color: var(--text2); margin-top: 4px;">Avg: <span id="hum-avg">--</span>%</div>
-              <div style="font-size: 11px; color: var(--text2);">Range: <span id="hum-range">--</span>%</div>
-            </div>
-          </div>
-          
-          <div class="card">
-            <div class="card-head" style="background: var(--bg3);">
-              <span class="card-title" style="font-size: 12px;">☁️ MQ135 Raw Values</span>
-            </div>
-            <div class="card-body">
-              <div id="mq135-history" style="font-size: 24px; font-weight: 700; color: var(--purple); font-family: var(--mono);">--</div>
-              <div style="font-size: 11px; color: var(--text2); margin-top: 4px;">Avg: <span id="mq135-avg">--</span></div>
-              <div style="font-size: 11px; color: var(--text2);">Range: <span id="mq135-range">--</span></div>
-            </div>
-          </div>
-          
-          <div class="card">
-            <div class="card-head" style="background: var(--bg3);">
-              <span class="card-title" style="font-size: 12px;">🫁 CO₂ Estimation</span>
-            </div>
-            <div class="card-body">
-              <div id="co2-history" style="font-size: 24px; font-weight: 700; color: var(--accent); font-family: var(--mono);">-- ppm</div>
-              <div style="font-size: 11px; color: var(--text2); margin-top: 4px;">Avg: <span id="co2-avg">--</span> ppm</div>
-              <div style="font-size: 11px; color: var(--text2);">Range: <span id="co2-range">--</span> ppm</div>
-            </div>
-          </div>
-        </div>
-        
+
         <!-- RECENT ACTIVITY (full-width) -->
         <div class="card" style="margin-top: 16px;">
           <div class="card-head">
@@ -406,28 +382,6 @@ html, body { height: 100%; overflow: hidden; font-family: var(--font); backgroun
           </div>
           <div class="card-body">
             <div id="system-activity"></div>
-          </div>
-        </div>
-
-        <!-- CHARTS ROW -->
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 16px;">
-          <div class="card">
-            <div class="card-head">
-              <span class="card-title">📈 AQI Trend</span>
-              <span style="font-size:11px;color:var(--text2);">Last 20 readings</span>
-            </div>
-            <div class="card-body">
-              <div style="height:200px;position:relative;"><canvas id="overview-aqi-chart"></canvas></div>
-            </div>
-          </div>
-          <div class="card">
-            <div class="card-head">
-              <span class="card-title">🌡️ Temperature &amp; Humidity</span>
-              <span style="font-size:11px;color:var(--text2);">Last 20 readings</span>
-            </div>
-            <div class="card-body">
-              <div style="height:200px;position:relative;"><canvas id="overview-env-chart"></canvas></div>
-            </div>
           </div>
         </div>
       </div>
