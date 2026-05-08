@@ -391,6 +391,39 @@ html, body { height: 100%; overflow: hidden; font-family: var(--font); backgroun
             </div>
           </div>
         </div>
+        
+        <div class="card" style="margin-top: 16px;">
+          <div class="card-head">
+            <span class="card-title">📱 SMS Notification Subscribers</span>
+            <button class="btn btn-primary btn-sm" onclick="showAddSMSUserModal()">+ Register for SMS</button>
+          </div>
+          <div class="card-body">
+            <div class="tbl-wrap">
+              <table class="tbl" id="sms-users-table">
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th>Phone Number</th>
+                    <th>AQI Threshold</th>
+                    <th>Status</th>
+                    <th>Last Alert</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="sms-users-body">
+                  <tr><td colspan="6" style="text-align:center;color:var(--text2);">Loading SMS subscribers...</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <div style="margin-top: 12px; padding: 12px; background: var(--bg3); border-radius: var(--radius); font-size: 11px; color: var(--text2);">
+              <strong>💡 How SMS Alerts Work:</strong><br>
+              • Users register their phone number and AQI threshold<br>
+              • When AQI exceeds threshold, SIM900 sends SMS automatically<br>
+              • 30-minute cooldown between alerts to same user<br>
+              • Requires SIM900 GSM module connected to Arduino
+            </div>
+          </div>
+        </div>
       </div>
 
       <!-- SETTINGS SECTION -->
@@ -441,6 +474,31 @@ html, body { height: 100%; overflow: hidden; font-family: var(--font); backgroun
             <button class="btn btn-primary" onclick="saveThresholds()">Save Thresholds</button>
           </div>
         </div>
+        
+        <div class="card">
+          <div class="card-head">
+            <span class="card-title">📱 SMS Notification Settings</span>
+          </div>
+          <div class="card-body">
+            <div class="form-group">
+              <label class="form-label">SIM900 Phone Number (Device)</label>
+              <input class="form-input" type="text" id="device-phone" placeholder="+63XXXXXXXXXX" value="+639123456789">
+              <small style="color:var(--text2);font-size:11px;">Phone number of the SIM900 module on Arduino</small>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Default SMS Alert Message</label>
+              <textarea class="form-input" id="sms-template" rows="3">AirWatch Alert: AQI is now {aqi} - {category}. Location: {location}. Stay safe!</textarea>
+              <small style="color:var(--text2);font-size:11px;">Use {aqi}, {category}, {location} as placeholders</small>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Cooldown Between SMS (minutes)</label>
+              <input class="form-input" type="number" id="sms-cooldown" value="30" min="5">
+              <small style="color:var(--text2);font-size:11px;">Minimum time between alerts to same user</small>
+            </div>
+            <button class="btn btn-primary" onclick="saveSMSSettings()">Save SMS Settings</button>
+            <button class="btn btn-ghost" onclick="testSMS()" style="margin-left:8px;">📤 Test SMS</button>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -463,6 +521,11 @@ html, body { height: 100%; overflow: hidden; font-family: var(--font); backgroun
         <input class="form-input" type="email" id="user-email" placeholder="user@example.com">
       </div>
       <div class="form-group">
+        <label class="form-label">📱 Phone Number (for SMS alerts)</label>
+        <input class="form-input" type="tel" id="user-phone" placeholder="+63XXXXXXXXXX">
+        <small style="color:var(--text2);font-size:11px;">Format: +63 followed by 10 digits (e.g., +639123456789)</small>
+      </div>
+      <div class="form-group">
         <label class="form-label">Role</label>
         <select class="form-select" id="user-role">
           <option value="admin">Admin</option>
@@ -473,6 +536,17 @@ html, body { height: 100%; overflow: hidden; font-family: var(--font); backgroun
       <div class="form-group">
         <label class="form-label">Department</label>
         <input class="form-input" id="user-dept" placeholder="Department">
+      </div>
+      <div class="form-group">
+        <label class="form-label">AQI Alert Threshold</label>
+        <input class="form-input" type="number" id="user-aqi-threshold" value="100" min="1" max="500">
+        <small style="color:var(--text2);font-size:11px;">Send SMS when AQI exceeds this value</small>
+      </div>
+      <div class="form-group">
+        <label class="form-checkbox" style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+          <input type="checkbox" id="user-sms-enabled" checked style="width:auto;">
+          <span>Enable SMS Notifications</span>
+        </label>
       </div>
     </div>
     <div class="modal-foot">
@@ -517,6 +591,52 @@ html, body { height: 100%; overflow: hidden; font-family: var(--font); backgroun
   </div>
 </div>
 
+<!-- SMS USER REGISTRATION MODAL -->
+<div class="modal-bg" id="sms-user-modal">
+  <div class="modal">
+    <div class="modal-head">
+      <span class="modal-title">📱 Register for SMS Alerts</span>
+      <button class="modal-close" onclick="closeModal('sms-user-modal')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label class="form-label">Full Name</label>
+        <input class="form-input" id="sms-user-name" placeholder="Enter your full name">
+      </div>
+      <div class="form-group">
+        <label class="form-label">📱 Phone Number</label>
+        <input class="form-input" type="tel" id="sms-user-phone" placeholder="+63XXXXXXXXXX">
+        <small style="color:var(--text2);font-size:11px;">Format: +63 followed by 10 digits (e.g., +639123456789)</small>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Email (Optional)</label>
+        <input class="form-input" type="email" id="sms-user-email" placeholder="user@example.com">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Device to Monitor</label>
+        <select class="form-select" id="sms-user-device">
+          <option value="AW-001">AW-001 - AirWatch Main Station</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">AQI Alert Threshold</label>
+        <input class="form-input" type="number" id="sms-user-threshold" value="100" min="1" max="500">
+        <small style="color:var(--text2);font-size:11px;">You'll receive SMS when AQI exceeds this value</small>
+      </div>
+      <div style="padding: 12px; background: var(--bg3); border-radius: var(--radius); margin-top: 12px;">
+        <strong style="font-size: 12px; color: var(--text);">📝 SMS Alert Preview:</strong>
+        <div style="font-size: 11px; color: var(--text2); margin-top: 6px; font-style: italic;">
+          "AirWatch Alert: AQI is now 125 - Unhealthy. Location: Your Location. Stay safe!"
+        </div>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost" onclick="closeModal('sms-user-modal')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveSMSUser()">Register for SMS</button>
+    </div>
+  </div>
+</div>
+
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
 // ═══════════════════════════════════════════
@@ -525,7 +645,10 @@ html, body { height: 100%; overflow: hidden; font-family: var(--font); backgroun
 const SUPABASE_CONFIG = {
   url: 'https://hqptxgzpzuhsrybuyjoy.supabase.co',
   anonKey: 'sb_publishable_Vn85SyMOd3cToHzCliO5Jg_AX2BO_xY',
-  table: 'air_quality_readings'
+  table: 'air_quality_readings',
+  notificationUsersTable: 'notification_users',
+  smsNotificationsTable: 'sms_notifications',
+  devicesTable: 'devices'
 };
 
 // Database connection module with caching for offline support
@@ -595,6 +718,117 @@ const Database = {
     if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
     if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
     return `${Math.floor(diff / 86400)}d ago`;
+  },
+
+  // ═══════════════════════════════════════════
+  // SMS NOTIFICATION FUNCTIONS
+  // ═══════════════════════════════════════════
+  async getNotificationUsers() {
+    try {
+      const response = await fetch(
+        `${SUPABASE_CONFIG.url}/rest/v1/${SUPABASE_CONFIG.notificationUsersTable}?is_active=eq.true&order=created_at.desc`,
+        {
+          headers: {
+            'apikey': SUPABASE_CONFIG.anonKey,
+            'Authorization': `Bearer ${SUPABASE_CONFIG.anonKey}`
+          }
+        }
+      );
+      
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      return await response.json();
+    } catch (error) {
+      console.error('Error fetching notification users:', error);
+      return [];
+    }
+  },
+
+  async registerSMSUser(userData) {
+    try {
+      const response = await fetch(
+        `${SUPABASE_CONFIG.url}/rest/v1/${SUPABASE_CONFIG.notificationUsersTable}`,
+        {
+          method: 'POST',
+          headers: {
+            'apikey': SUPABASE_CONFIG.anonKey,
+            'Authorization': `Bearer ${SUPABASE_CONFIG.anonKey}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(userData)
+        }
+      );
+      
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      return await response.json();
+    } catch (error) {
+      console.error('Error registering SMS user:', error);
+      throw error;
+    }
+  },
+
+  async deleteSMSUser(userId) {
+    try {
+      const response = await fetch(
+        `${SUPABASE_CONFIG.url}/rest/v1/${SUPABASE_CONFIG.notificationUsersTable}?id=eq.${userId}`,
+        {
+          method: 'DELETE',
+          headers: {
+            'apikey': SUPABASE_CONFIG.anonKey,
+            'Authorization': `Bearer ${SUPABASE_CONFIG.anonKey}`
+          }
+        }
+      );
+      
+      return response.ok;
+    } catch (error) {
+      console.error('Error deleting SMS user:', error);
+      return false;
+    }
+  },
+
+  async logSMSNotification(notificationData) {
+    try {
+      const response = await fetch(
+        `${SUPABASE_CONFIG.url}/rest/v1/${SUPABASE_CONFIG.smsNotificationsTable}`,
+        {
+          method: 'POST',
+          headers: {
+            'apikey': SUPABASE_CONFIG.anonKey,
+            'Authorization': `Bearer ${SUPABASE_CONFIG.anonKey}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(notificationData)
+        }
+      );
+      
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      return await response.json();
+    } catch (error) {
+      console.error('Error logging SMS notification:', error);
+      return null;
+    }
+  },
+
+  async updateUserLastAlert(userId) {
+    try {
+      const response = await fetch(
+        `${SUPABASE_CONFIG.url}/rest/v1/${SUPABASE_CONFIG.notificationUsersTable}?id=eq.${userId}`,
+        {
+          method: 'PATCH',
+          headers: {
+            'apikey': SUPABASE_CONFIG.anonKey,
+            'Authorization': `Bearer ${SUPABASE_CONFIG.anonKey}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ last_alert: new Date().toISOString() })
+        }
+      );
+      
+      return response.ok;
+    } catch (error) {
+      console.error('Error updating last alert:', error);
+      return false;
+    }
   }
 };
 
@@ -1019,6 +1253,163 @@ function loadUsers() {
       `).join('')}
     </tbody>
   `;
+  
+  // Also load SMS notification users
+  loadSMSUsers();
+}
+
+// ═══════════════════════════════════════════
+// SMS NOTIFICATION FUNCTIONS
+// ═══════════════════════════════════════════
+function showAddSMSUserModal() {
+  document.getElementById('sms-user-modal').classList.add('active');
+}
+
+async function loadSMSUsers() {
+  const tbody = document.getElementById('sms-users-body');
+  tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text2);">Loading SMS subscribers...</td></tr>';
+  
+  try {
+    const smsUsers = await Database.getNotificationUsers();
+    
+    if (smsUsers.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text2);padding:20px;">No SMS subscribers registered yet</td></tr>';
+      return;
+    }
+    
+    tbody.innerHTML = smsUsers.map(user => `
+      <tr>
+        <td>${user.name}</td>
+        <td style="font-family:var(--mono);font-size:12px;">${user.phone_number}</td>
+        <td><span class="status-badge" style="background:${aqiColor(user.aqi_threshold)}20;color:${aqiColor(user.aqi_threshold)};">${user.aqi_threshold}</span></td>
+        <td><span class="status-badge status-${user.is_active ? 'online' : 'offline'}">${user.is_active ? 'Active' : 'Inactive'}</span></td>
+        <td style="font-size:11px;color:var(--text2);">${user.last_alert ? formatTimeAgo(user.last_alert) : 'Never'}</td>
+        <td>
+          <button class="btn btn-ghost btn-sm" onclick="testSMSToUser('${user.phone_number}')">📤 Test</button>
+          <button class="btn btn-danger btn-sm" onclick="deleteSMSUser('${user.id}')">Delete</button>
+        </td>
+      </tr>
+    `).join('');
+    
+    console.log(`✅ Loaded ${smsUsers.length} SMS subscribers`);
+  } catch (error) {
+    console.error('Error loading SMS users:', error);
+    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--red);padding:20px;">Error loading SMS subscribers</td></tr>';
+  }
+}
+
+async function saveSMSUser() {
+  const name = document.getElementById('sms-user-name').value.trim();
+  const phone = document.getElementById('sms-user-phone').value.trim();
+  const email = document.getElementById('sms-user-email').value.trim();
+  const deviceId = document.getElementById('sms-user-device').value;
+  const threshold = parseInt(document.getElementById('sms-user-threshold').value) || 100;
+  
+  // Validate phone number format
+  const phoneRegex = /^\+63[0-9]{10}$/;
+  if (!phoneRegex.test(phone)) {
+    alert('Please enter a valid Philippine phone number in format: +63XXXXXXXXXX');
+    return;
+  }
+  
+  if (!name) {
+    alert('Please enter a name');
+    return;
+  }
+  
+  const userData = {
+    name: name,
+    phone_number: phone,
+    email: email || null,
+    device_id: deviceId,
+    aqi_threshold: threshold,
+    is_active: true
+  };
+  
+  try {
+    await Database.registerSMSUser(userData);
+    console.log('✅ SMS user registered:', name);
+    closeModal('sms-user-modal');
+    
+    // Clear form
+    document.getElementById('sms-user-name').value = '';
+    document.getElementById('sms-user-phone').value = '';
+    document.getElementById('sms-user-email').value = '';
+    
+    // Refresh list
+    loadSMSUsers();
+    
+    alert('✅ User registered successfully for SMS alerts!');
+  } catch (error) {
+    console.error('Error registering SMS user:', error);
+    alert('❌ Error registering user: ' + error.message);
+  }
+}
+
+async function deleteSMSUser(userId) {
+  if (!confirm('Are you sure you want to delete this SMS subscriber?')) {
+    return;
+  }
+  
+  try {
+    const success = await Database.deleteSMSUser(userId);
+    if (success) {
+      console.log('✅ SMS user deleted');
+      loadSMSUsers();
+      alert('✅ SMS subscriber deleted successfully!');
+    } else {
+      throw new Error('Delete failed');
+    }
+  } catch (error) {
+    console.error('Error deleting SMS user:', error);
+    alert('❌ Error deleting SMS subscriber');
+  }
+}
+
+async function testSMSToUser(phoneNumber) {
+  const testMessage = `AirWatch Test: This is a test SMS from your AirWatch system. AQI monitoring is active. Reply STOP to unsubscribe.`;
+  
+  try {
+    // Log the test SMS
+    await Database.logSMSNotification({
+      phone_number: phoneNumber,
+      message: testMessage,
+      aqi_value: null,
+      status: 'sent'
+    });
+    
+    console.log('📤 Test SMS sent to:', phoneNumber);
+    alert(`✅ Test SMS sent to ${phoneNumber}!\n\nNote: SMS will be sent by the Arduino SIM900 module when it checks the database.`);
+  } catch (error) {
+    console.error('Error sending test SMS:', error);
+    alert('❌ Error sending test SMS');
+  }
+}
+
+function saveSMSSettings() {
+  const devicePhone = document.getElementById('device-phone').value;
+  const smsTemplate = document.getElementById('sms-template').value;
+  const smsCooldown = document.getElementById('sms-cooldown').value;
+  
+  // Store settings in localStorage
+  localStorage.setItem('smsSettings', JSON.stringify({
+    devicePhone: devicePhone,
+    template: smsTemplate,
+    cooldown: parseInt(smsCooldown)
+  }));
+  
+  console.log('✅ SMS settings saved');
+  alert('✅ SMS settings saved successfully!');
+}
+
+function testSMS() {
+  const devicePhone = document.getElementById('device-phone').value;
+  if (!devicePhone) {
+    alert('❌ Please enter the device phone number first');
+    return;
+  }
+  
+  alert(`📤 Test SMS will be sent to ${deviceNumber}\n\nNote: The Arduino SIM900 module will send this test message when it next checks for pending SMS notifications.`);
 }
 
 // ═══════════════════════════════════════════
@@ -1487,6 +1878,59 @@ function logout() {
 }
 
 // ═══════════════════════════════════════════
+// SMS NOTIFICATION TRIGGER
+// ═══════════════════════════════════════════
+async function checkAndTriggerSMSNotifications(currentAQI) {
+  try {
+    // Get all active notification users
+    const users = await Database.getNotificationUsers();
+    
+    // Get SMS settings for cooldown
+    const smsSettings = JSON.parse(localStorage.getItem('smsSettings') || '{}');
+    const cooldownMinutes = smsSettings.cooldown || 30;
+    const cooldownMs = cooldownMinutes * 60 * 1000;
+    
+    // Check each user
+    for (const user of users) {
+      // Check if AQI exceeds user's threshold
+      if (currentAQI > user.aqi_threshold) {
+        // Check cooldown period
+        const lastAlert = user.last_alert ? new Date(user.last_alert) : null;
+        const now = new Date();
+        
+        if (!lastAlert || (now - lastAlert) > cooldownMs) {
+          // Prepare SMS message
+          const location = devices[0].location || 'Your Location';
+          const category = aqiLabel(currentAQI);
+          const message = `AirWatch Alert: AQI is now ${currentAQI} - ${category}. Location: ${location}. Stay safe!`;
+          
+          // Log the notification
+          await Database.logSMSNotification({
+            user_id: user.id,
+            phone_number: user.phone_number,
+            message: message,
+            aqi_value: currentAQI,
+            status: 'pending'
+          });
+          
+          // Update user's last alert time
+          await Database.updateUserLastAlert(user.id);
+          
+          console.log(`📤 SMS notification queued for ${user.name} (${user.phone_number}): AQI ${currentAQI} > ${user.aqi_threshold}`);
+          
+          // Log activity
+          logDatabaseActivity('warn', `SMS alert queued for ${user.name}: AQI ${currentAQI} exceeds threshold ${user.aqi_threshold}`);
+        } else {
+          console.log(`⏳ SMS cooldown active for ${user.name} - skipping`);
+        }
+      }
+    }
+  } catch (error) {
+    console.error('Error checking SMS notifications:', error);
+  }
+}
+
+// ═══════════════════════════════════════════
 // INITIALIZATION
 // ═══════════════════════════════════════════
 async function initializeAdmin() {
@@ -1579,6 +2023,9 @@ async function initializeAdmin() {
       document.getElementById('summary-aqi').style.color = aqiColor(devices[0].aqi);
       document.getElementById('summary-temp').textContent = devices[0].temp + '°C';
       document.getElementById('summary-last-update').textContent = new Date().toLocaleTimeString();
+      
+      // Check and trigger SMS notifications
+      await checkAndTriggerSMSNotifications(devices[0].aqi);
     } else {
       // Offline mode - generate fallback data
       console.warn('⚠️ No database connection, generating offline data');

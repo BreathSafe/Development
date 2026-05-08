@@ -67,6 +67,114 @@ GROUP BY DATE_TRUNC('hour', created_at)
 ORDER BY hour DESC;
 
 -- ============================================================
+--  USER MANAGEMENT & SMS NOTIFICATION TABLES
+-- ============================================================
+
+-- 8. Users table for SMS notification registration
+CREATE TABLE IF NOT EXISTS notification_users (
+  id            BIGSERIAL PRIMARY KEY,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  name          TEXT NOT NULL,
+  phone_number  TEXT NOT NULL UNIQUE,  -- Format: +63XXXXXXXXXX
+  email         TEXT,
+  device_id     TEXT DEFAULT 'AW-001', -- Which device to monitor
+  aqi_threshold INTEGER DEFAULT 100,    -- Alert when AQI exceeds this
+  is_active     BOOLEAN DEFAULT TRUE,
+  last_alert    TIMESTAMPTZ
+);
+
+-- 9. SMS notification log
+CREATE TABLE IF NOT EXISTS sms_notifications (
+  id            BIGSERIAL PRIMARY KEY,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  user_id       BIGINT REFERENCES notification_users(id),
+  phone_number  TEXT NOT NULL,
+  message       TEXT NOT NULL,
+  aqi_value     INTEGER,
+  status        TEXT DEFAULT 'pending', -- pending, sent, failed
+  error_message TEXT
+);
+
+-- 10. Device management table
+CREATE TABLE IF NOT EXISTS devices (
+  id            BIGSERIAL PRIMARY KEY,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  device_id     TEXT NOT NULL UNIQUE,
+  name          TEXT NOT NULL,
+  location      TEXT,
+  latitude      NUMERIC(10, 7),
+  longitude     NUMERIC(10, 7),
+  status        TEXT DEFAULT 'active',
+  last_seen     TIMESTAMPTZ,
+  phone_number  TEXT  -- For SIM900 on this device
+);
+
+-- 11. Indexes for performance
+CREATE INDEX IF NOT EXISTS idx_notification_users_phone
+  ON notification_users(phone_number);
+CREATE INDEX IF NOT EXISTS idx_notification_users_active
+  ON notification_users(is_active) WHERE is_active = TRUE;
+CREATE INDEX IF NOT EXISTS idx_sms_notifications_status
+  ON sms_notifications(status);
+CREATE INDEX IF NOT EXISTS idx_sms_notifications_created
+  ON sms_notifications(created_at DESC);
+
+-- 12. Enable RLS on new tables
+ALTER TABLE notification_users ENABLE ROW LEVEL SECURITY;
+ALTER TABLE sms_notifications ENABLE ROW LEVEL SECURITY;
+ALTER TABLE devices ENABLE ROW LEVEL SECURITY;
+
+-- 13. RLS Policies for notification_users
+CREATE POLICY "allow_anon_select_users"
+  ON notification_users
+  FOR SELECT
+  TO anon
+  USING (true);
+
+CREATE POLICY "allow_anon_insert_users"
+  ON notification_users
+  FOR INSERT
+  TO anon
+  WITH CHECK (true);
+
+CREATE POLICY "allow_anon_update_users"
+  ON notification_users
+  FOR UPDATE
+  TO anon
+  USING (true);
+
+-- 14. RLS Policies for sms_notifications
+CREATE POLICY "allow_anon_select_sms"
+  ON sms_notifications
+  FOR SELECT
+  TO anon
+  USING (true);
+
+CREATE POLICY "allow_anon_insert_sms"
+  ON sms_notifications
+  FOR INSERT
+  TO anon
+  WITH CHECK (true);
+
+-- 15. RLS Policies for devices
+CREATE POLICY "allow_anon_select_devices"
+  ON devices
+  FOR SELECT
+  TO anon
+  USING (true);
+
+CREATE POLICY "allow_anon_insert_devices"
+  ON devices
+  FOR INSERT
+  TO anon
+  WITH CHECK (true);
+
+-- 16. Insert default device
+INSERT INTO devices (device_id, name, location, latitude, longitude)
+VALUES ('AW-001', 'AirWatch Main Station', 'Your Location', 8.4542, 124.6319)
+ON CONFLICT (device_id) DO NOTHING;
+
+-- ============================================================
 --  HOW TO GET YOUR CREDENTIALS (for the Arduino sketch)
 -- ============================================================
 --  1. SUPABASE_URL   → Settings → API → "Project URL"
