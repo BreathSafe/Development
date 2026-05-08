@@ -553,8 +553,14 @@ html, body { height: 100%; overflow: hidden; font-family: var(--font); backgroun
             </div>
             <div class="form-group">
               <label class="form-label">Default SMS Alert Message</label>
-              <textarea class="form-input" id="sms-template" rows="3">AirWatch Alert: AQI is now {aqi} - {category}. Location: {location}. Stay safe!</textarea>
-              <small style="color:var(--text2);font-size:11px;">Use {aqi}, {category}, {location} as placeholders</small>
+              <textarea class="form-input" id="sms-template" rows="3">BreatheSafe Alert (Moderate Condition)
+Location: {location}
+Time: {time}
+Air Quality: {air_quality}
+Temperature: {temperature}
+Details: Sensitive individuals may experience mild discomfort.
+Advice: Limit outdoor activities and stay hydrated.</textarea>
+              <small style="color:var(--text2);font-size:11px;">Templates are now auto-selected by alert level (Moderate/High/Danger).</small>
             </div>
             <div class="form-group">
               <label class="form-label">Cooldown Between SMS (minutes)</label>
@@ -1247,6 +1253,121 @@ function aqiLabel(aqi) {
   return 'Hazardous';
 }
 
+function formatAlertClockTime(date = new Date()) {
+  return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+function getAqiSeverityLevel(aqi) {
+  if (aqi <= 50) return 0;      // normal
+  if (aqi <= 100) return 1;     // moderate
+  if (aqi <= 200) return 2;     // high
+  return 3;                     // danger
+}
+
+function getTemperatureSeverityLevel(temp) {
+  if (temp <= 30) return 0;     // normal comfort
+  if (temp <= 34) return 1;     // warm / above comfort
+  if (temp <= 38) return 2;     // high heat
+  return 3;                     // extreme heat
+}
+
+function getAlertLevel(device) {
+  const aqiLevel = getAqiSeverityLevel(device.aqi || 0);
+  const tempLevel = getTemperatureSeverityLevel(device.temp || 0);
+  const level = Math.max(aqiLevel, tempLevel);
+  return ['normal', 'moderate', 'high', 'danger'][level];
+}
+
+function getAirQualityText(aqi) {
+  if (aqi <= 50) return 'Good';
+  if (aqi <= 100) return 'Slightly polluted (AQI rising)';
+  if (aqi <= 200) return 'Unhealthy (high pollutant concentration detected)';
+  return 'Hazardous (dangerous pollutant level detected)';
+}
+
+function getTemperatureText(temp) {
+  if (temp <= 30) return 'Comfortable (within normal range)';
+  if (temp <= 34) return 'Warm (above normal comfort level)';
+  if (temp <= 38) return 'High heat levels detected';
+  return 'Extreme heat condition';
+}
+
+function getAlertTypeFromLevel(level) {
+  if (level === 'danger') return 'danger';
+  if (level === 'high' || level === 'moderate') return 'warn';
+  return 'success';
+}
+
+function buildAlertContent(level, device) {
+  const location = device.location || 'School Campus Monitoring Zone';
+  const time = formatAlertClockTime();
+  const airQuality = getAirQualityText(device.aqi || 0);
+  const temperature = getTemperatureText(device.temp || 0);
+
+  const templates = {
+    moderate: {
+      smsHeader: 'BreatheSafe Alert (Moderate Condition)',
+      smsBody: `Location: ${location}\nTime: ${time}\nAir Quality: ${airQuality}\nTemperature: ${temperature}\nDetails: Sensitive individuals may experience mild discomfort such as headache or fatigue.\nAdvice: Limit outdoor activities and stay hydrated.`,
+      toastType: 'info',
+      toastTitle: 'Moderate Air Condition',
+      toastMessage: `Location: ${location} | Time: ${time}\nAir quality is slightly polluted and temperature is rising. Some individuals may feel mild discomfort. Limit outdoor exposure.`
+    },
+    high: {
+      smsHeader: 'BreatheSafe Warning (High Risk Condition)',
+      smsBody: `Location: ${location}\nTime: ${time}\nAir Quality: ${airQuality}\nTemperature: ${temperature}\nDetails: Risk of breathing difficulty, dizziness, dehydration, and reduced focus.\nAdvice: Avoid outdoor exposure, stay indoors, and drink plenty of water.`,
+      toastType: 'warn',
+      toastTitle: 'Unhealthy Conditions Detected',
+      toastMessage: `Location: ${location} | Time: ${time}\nPoor air quality and high temperature detected. Risk of fatigue, dizziness, and breathing discomfort. Stay indoors and hydrate.`
+    },
+    danger: {
+      smsHeader: 'BreatheSafe Emergency Alert (Critical Condition)',
+      smsBody: `Location: ${location}\nTime: ${time}\nAir Quality: ${airQuality}\nTemperature: ${temperature}\nDetails: High risk of heat stroke, asthma attacks, and serious health effects.\nAction Required: Suspend outdoor activities immediately and ensure student safety.`,
+      toastType: 'error',
+      toastTitle: 'Emergency Environmental Alert',
+      toastMessage: `Location: ${location} | Time: ${time}\nHazardous air quality and extreme heat detected. Immediate action required: avoid outdoor activities and ensure safety precautions.`
+    },
+    normal: {
+      smsHeader: 'BreatheSafe Status (Normal Condition)',
+      smsBody: `Location: ${location}\nTime: ${time}\nAir Quality: Good\nTemperature: Comfortable\nDetails: Conditions are within safe and comfortable ranges.`,
+      toastType: 'success',
+      toastTitle: 'Safe Environment',
+      toastMessage: `Location: ${location} | Time: ${time}\nAir quality and temperature are within safe and comfortable levels. No health risks detected.`
+    }
+  };
+
+  return templates[level] || templates.normal;
+}
+
+function showDashboardToast(type, title, message, duration = 7000) {
+  let container = document.getElementById('toast-container');
+  if (!container) {
+    container = document.createElement('div');
+    container.id = 'toast-container';
+    container.style.cssText = 'position:fixed;top:70px;right:16px;display:flex;flex-direction:column;gap:8px;z-index:10000;max-width:360px;';
+    document.body.appendChild(container);
+  }
+
+  const palette = {
+    success: { bg: 'rgba(34,197,94,.95)', border: 'rgba(34,197,94,.8)' },
+    info: { bg: 'rgba(59,130,246,.95)', border: 'rgba(59,130,246,.8)' },
+    warn: { bg: 'rgba(245,158,11,.95)', border: 'rgba(245,158,11,.8)' },
+    error: { bg: 'rgba(239,68,68,.95)', border: 'rgba(239,68,68,.8)' }
+  };
+  const color = palette[type] || palette.info;
+
+  const toast = document.createElement('div');
+  toast.style.cssText = `background:${color.bg};border:1px solid ${color.border};color:#fff;border-radius:10px;padding:10px 12px;font-size:12px;line-height:1.4;box-shadow:0 8px 20px rgba(0,0,0,.28);white-space:pre-line;`;
+  toast.innerHTML = `<div style="font-weight:700;margin-bottom:4px;">${title}</div><div>${message}</div>`;
+  container.appendChild(toast);
+
+  setTimeout(() => {
+    toast.style.opacity = '0';
+    toast.style.transform = 'translateX(8px)';
+    toast.style.transition = 'all .22s ease';
+    setTimeout(() => toast.remove(), 220);
+  }, duration);
+}
+
 // ═══════════════════════════════════════════
 // DATA STORE
 // ═══════════════════════════════════════════
@@ -1268,6 +1389,7 @@ let adminAlerts = [
 ];
 
 let adminMap, adminMarkers = {};
+let lastToastAlertLevel = null;
 
 // ═══════════════════════════════════════════
 // NAVIGATION
@@ -1482,16 +1604,12 @@ async function loadOverview() {
     
     // Update alerts in overview
     const alerts = [];
-    if (device.aqi > 100) {
+    const alertLevel = getAlertLevel(device);
+    if (alertLevel === 'danger' || alertLevel === 'high' || alertLevel === 'moderate') {
+      const template = buildAlertContent(alertLevel, device);
       alerts.push({
-        type: 'danger',
-        msg: `Arduino ${device.id}: AQI ${device.aqi} exceeds safe threshold`,
-        time: device.lastSeen
-      });
-    } else if (device.aqi > 50) {
-      alerts.push({
-        type: 'warn',
-        msg: `Arduino ${device.id}: Moderate air quality (AQI: ${device.aqi})`,
+        type: getAlertTypeFromLevel(alertLevel),
+        msg: template.toastMessage,
         time: device.lastSeen
       });
     }
@@ -2169,16 +2287,12 @@ function updateMapAlerts() {
   const alerts = [];
   
   // Generate alerts based on Arduino data
-  if (device.aqi > 100) {
+  const alertLevel = getAlertLevel(device);
+  if (alertLevel === 'danger' || alertLevel === 'high' || alertLevel === 'moderate') {
+    const template = buildAlertContent(alertLevel, device);
     alerts.push({
-      type: 'danger',
-      msg: `Arduino ${device.id}: AQI ${device.aqi} exceeds safe threshold`,
-      time: device.lastSeen
-    });
-  } else if (device.aqi > 50) {
-    alerts.push({
-      type: 'warn',
-      msg: `Arduino ${device.id}: Moderate air quality (AQI: ${device.aqi})`,
+      type: getAlertTypeFromLevel(alertLevel),
+      msg: template.toastMessage,
       time: device.lastSeen
     });
   }
@@ -2228,17 +2342,13 @@ function loadAlerts() {
   const device = devices[0];
   const databaseAlerts = [];
   
-  // AQI threshold alerts
-  if (device.aqi > 100) {
+  // Environmental alerts (AQI + Temperature)
+  const alertLevel = getAlertLevel(device);
+  if (alertLevel === 'danger' || alertLevel === 'high' || alertLevel === 'moderate') {
+    const template = buildAlertContent(alertLevel, device);
     databaseAlerts.push({
-      type: 'danger',
-      msg: `Arduino ${device.id}: AQI ${device.aqi} exceeds safe threshold`,
-      time: device.lastSeen
-    });
-  } else if (device.aqi > 50) {
-    databaseAlerts.push({
-      type: 'warn',
-      msg: `Arduino ${device.id}: Moderate air quality (AQI: ${device.aqi})`,
+      type: getAlertTypeFromLevel(alertLevel),
+      msg: template.toastMessage,
       time: device.lastSeen
     });
   }
@@ -2633,16 +2743,17 @@ async function checkAndTriggerSMSNotifications(currentAQI) {
     // Check each user
     for (const user of users) {
       // Check if AQI exceeds user's threshold
-      if (currentAQI > user.aqi_threshold) {
+      const currentDevice = devices[0];
+      const level = getAlertLevel(currentDevice);
+      if (currentAQI > user.aqi_threshold && level !== 'normal') {
         // Check cooldown period
         const lastAlert = user.last_alert ? new Date(user.last_alert) : null;
         const now = new Date();
         
         if (!lastAlert || (now - lastAlert) > cooldownMs) {
           // Prepare SMS message
-          const location = devices[0].location || 'Your Location';
-          const category = aqiLabel(currentAQI);
-          const message = `AirWatch Alert: AQI is now ${currentAQI} - ${category}. Location: ${location}. Stay safe!`;
+          const template = buildAlertContent(level, currentDevice);
+          const message = `${template.smsHeader}\n${template.smsBody}`;
           
           // Log the notification
           await Database.logSMSNotification({
@@ -2656,10 +2767,10 @@ async function checkAndTriggerSMSNotifications(currentAQI) {
           // Update user's last alert time
           await Database.updateUserLastAlert(user.id);
           
-          console.log(`📤 SMS notification queued for ${user.name} (${user.phone_number}): AQI ${currentAQI} > ${user.aqi_threshold}`);
+          console.log(`📤 SMS notification queued for ${user.name} (${user.phone_number}): ${level.toUpperCase()} alert`);
           
           // Log activity
-          logDatabaseActivity('warn', `SMS alert queued for ${user.name}: AQI ${currentAQI} exceeds threshold ${user.aqi_threshold}`);
+          logDatabaseActivity('warn', `SMS ${level} alert queued for ${user.name}`);
         } else {
           console.log(`⏳ SMS cooldown active for ${user.name} - skipping`);
         }
@@ -2762,6 +2873,14 @@ async function initializeAdmin() {
       
       // Check and trigger SMS notifications
       await checkAndTriggerSMSNotifications(devices[0].aqi);
+
+      // Show dashboard toast when alert severity changes
+      const currentLevel = getAlertLevel(devices[0]);
+      if (currentLevel !== lastToastAlertLevel) {
+        const toastTemplate = buildAlertContent(currentLevel, devices[0]);
+        showDashboardToast(toastTemplate.toastType, toastTemplate.toastTitle, toastTemplate.toastMessage);
+        lastToastAlertLevel = currentLevel;
+      }
     } else {
       // Offline mode - generate fallback data
       console.warn('⚠️ No database connection, generating offline data');
