@@ -452,6 +452,44 @@ html, body { height: 100%; overflow: hidden; font-family: var(--font); backgroun
 
         <div class="metrics-grid" id="reports-metrics"></div>
 
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;">
+          <div class="card">
+            <div class="card-head">
+              <span class="card-title">User Activity (Bar)</span>
+            </div>
+            <div class="card-body">
+              <div style="height:240px;position:relative;"><canvas id="report-user-bar-chart"></canvas></div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-head">
+              <span class="card-title">Alerts Generated Trend (Line)</span>
+            </div>
+            <div class="card-body">
+              <div style="height:240px;position:relative;"><canvas id="report-alert-line-chart"></canvas></div>
+            </div>
+          </div>
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;">
+          <div class="card">
+            <div class="card-head">
+              <span class="card-title">SMS Status per User (Stacked)</span>
+            </div>
+            <div class="card-body">
+              <div style="height:260px;position:relative;"><canvas id="report-sms-stacked-chart"></canvas></div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-head">
+              <span class="card-title">AQI Band Share (Pie)</span>
+            </div>
+            <div class="card-body">
+              <div style="height:260px;position:relative;"><canvas id="report-aqi-pie-chart"></canvas></div>
+            </div>
+          </div>
+        </div>
+
         <div class="card">
           <div class="card-head">
             <span class="card-title">Interpretation</span>
@@ -1050,6 +1088,25 @@ const Database = {
     }
   },
 
+  async getSMSNotifications(limit = 200) {
+    try {
+      const response = await fetch(
+        `${SUPABASE_CONFIG.url}/rest/v1/${SUPABASE_CONFIG.smsNotificationsTable}?order=created_at.desc&limit=${limit}`,
+        {
+          headers: {
+            'apikey': SUPABASE_CONFIG.anonKey,
+            'Authorization': `Bearer ${SUPABASE_CONFIG.anonKey}`
+          }
+        }
+      );
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      return await response.json();
+    } catch (error) {
+      console.error('Error fetching SMS notifications:', error);
+      return [];
+    }
+  },
+
   async updateUserLastAlert(userId) {
     try {
       const response = await fetch(
@@ -1453,6 +1510,31 @@ let users = [
 let systemActivity = [];
 let databaseActivityLog = [];
 let roleActivityLog = [];
+let totalGeneratedAlerts = 0;
+let activeSessionUserId = 'USR-001';
+let userEngagementStats = JSON.parse(localStorage.getItem('userEngagementStats') || '{}');
+
+function ensureUserStats(userId) {
+  if (!userId) return;
+  if (!userEngagementStats[userId]) {
+    userEngagementStats[userId] = {
+      logins: 0,
+      dashboardViews: 0,
+      aqiViews: 0,
+      smsSent: 0,
+      smsFailed: 0,
+      smsSuccess: 0,
+      alertsGenerated: 0
+    };
+  }
+}
+
+function trackUserStat(userId, key, increment = 1) {
+  ensureUserStats(userId);
+  if (!userEngagementStats[userId]) return;
+  userEngagementStats[userId][key] = (userEngagementStats[userId][key] || 0) + increment;
+  localStorage.setItem('userEngagementStats', JSON.stringify(userEngagementStats));
+}
 
 let adminAlerts = [
   { type:'info', msg:'Arduino system online', time:'Just now' },
@@ -1477,7 +1559,11 @@ function showSection(section, element) {
   element.classList.add('active');
   
   // Load section data
-  if (section === 'overview') loadOverview();
+  if (section === 'overview') {
+    trackUserStat(activeSessionUserId, 'dashboardViews', 1);
+    trackUserStat(activeSessionUserId, 'aqiViews', 1);
+    loadOverview();
+  }
   if (section === 'devices') loadDevices();
   if (section === 'alerts') loadAlerts();
   if (section === 'reports') loadReports();
@@ -1831,6 +1917,10 @@ function viewAllReadings() {
 // ═══════════════════════════════════════════
 let aqiChartInstance = null;
 let envChartInstance = null;
+let reportUserBarChart = null;
+let reportAlertLineChart = null;
+let reportSmsStackedChart = null;
+let reportAqiPieChart = null;
 
 function drawOverviewCharts(readings) {
   if (!window.Chart) {
@@ -1927,7 +2017,11 @@ async function loadReports() {
   if (!metricsEl || !interpretationEl || !thresholdBody) return;
 
   try {
-    const readings = await Database.fetchLatestReadings(100);
+    const [readings, dbUsers, smsNotifications] = await Promise.all([
+      Database.fetchLatestReadings(100),
+      Database.getSystemUsers(),
+      Database.getSMSNotifications(200)
+    ]);
     if (!readings || readings.length === 0) {
       metricsEl.innerHTML = '<div class="metric-card"><div class="mc-label">Report Status</div><div class="mc-value">No Data</div></div>';
       interpretationEl.textContent = 'No readings available yet. Start collecting Arduino data to generate analytics.';
@@ -1965,12 +2059,52 @@ async function loadReports() {
     const riskRate = ((riskCount / total) * 100).toFixed(1);
     const dominant = Object.entries(counts).sort((a, b) => b[1] - a[1])[0][0];
     const dominantLabel = dominant === 'good' ? 'Good' : dominant === 'moderate' ? 'Moderate' : dominant === 'unhealthy' ? 'Unhealthy' : 'Hazardous';
+    const alertsGenerated = riskCount;
+    totalGeneratedAlerts = alertsGenerated;
+    const smsTotals = { sent: 0, failed: 0, success: 0 };
+
+    // Build user map for per-user report charts
+    const usersForReport = (dbUsers && dbUsers.length > 0)
+      ? dbUsers.map(u => ({
+          id: u.user_id || u.id,
+          name: u.name || u.email || (u.user_id || u.id || 'Unknown')
+        }))
+      : users.map(u => ({ id: u.id, name: u.name }));
+
+    usersForReport.forEach(u => ensureUserStats(u.id));
+
+    // Aggregate SMS statuses per user
+    const smsByUser = {};
+    usersForReport.forEach(u => {
+      smsByUser[u.id] = { sent: 0, failed: 0, success: 0 };
+    });
+    (smsNotifications || []).forEach(n => {
+      const uid = n.user_id || activeSessionUserId;
+      ensureUserStats(uid);
+      const status = String(n.status || '').toLowerCase();
+      if (!smsByUser[uid]) smsByUser[uid] = { sent: 0, failed: 0, success: 0 };
+
+      if (status === 'failed') {
+        smsByUser[uid].failed += 1;
+        smsTotals.failed += 1;
+      } else if (status === 'success' || status === 'sent') {
+        smsByUser[uid].success += 1;
+        smsTotals.success += 1;
+      } else {
+        smsByUser[uid].sent += 1;
+        smsTotals.sent += 1;
+      }
+    });
 
     metricsEl.innerHTML = [
       { label: 'Readings Analyzed', val: total, unit: '', color: 'var(--accent)' },
       { label: 'Average AQI', val: avgAqi, unit: '', color: aqiColor(avgAqi) },
       { label: 'Average Temperature', val: avgTemp, unit: '°C', color: 'var(--orange)' },
       { label: 'Average Humidity', val: avgHum, unit: '%', color: 'var(--teal)' },
+      { label: 'Alerts Generated', val: alertsGenerated, unit: '', color: 'var(--red)' },
+      { label: 'SMS Sent/Pending', val: smsTotals.sent, unit: '', color: 'var(--accent)' },
+      { label: 'SMS Failed', val: smsTotals.failed, unit: '', color: 'var(--red)' },
+      { label: 'SMS Success', val: smsTotals.success, unit: '', color: 'var(--green)' },
       { label: 'Risk Exposure', val: riskRate, unit: '%', color: riskRate > 40 ? 'var(--red)' : 'var(--yellow)' },
       { label: 'Dominant Band', val: dominantLabel, unit: '', color: 'var(--purple)' }
     ].map(m => `<div class="metric-card"><div class="mc-label">${m.label}</div><div class="mc-value" style="color:${m.color}">${m.val}<span class="mc-unit">${m.unit}</span></div></div>`).join('');
@@ -1996,6 +2130,121 @@ async function loadReports() {
         <td>${row[4]}</td>
       </tr>
     `).join('');
+
+    // ── Reports Chart Rendering (Bar, Line, Stacked, Pie) ──
+    const gridColor = 'rgba(255,255,255,0.05)';
+    const tickStyle = { color: '#556b82', font: { size: 10 } };
+    const labels = usersForReport.map(u => u.name);
+    const loginData = usersForReport.map(u => (userEngagementStats[u.id]?.logins || 0));
+    const dashboardData = usersForReport.map(u => (userEngagementStats[u.id]?.dashboardViews || 0));
+    const aqiViewData = usersForReport.map(u => (userEngagementStats[u.id]?.aqiViews || 0));
+
+    const barCtx = document.getElementById('report-user-bar-chart');
+    if (barCtx) {
+      if (reportUserBarChart) reportUserBarChart.destroy();
+      reportUserBarChart = new Chart(barCtx.getContext('2d'), {
+        type: 'bar',
+        data: {
+          labels,
+          datasets: [
+            { label: 'Logins', data: loginData, backgroundColor: 'rgba(59,130,246,.7)' },
+            { label: 'Dashboard Views', data: dashboardData, backgroundColor: 'rgba(34,197,94,.7)' },
+            { label: 'AQI Views', data: aqiViewData, backgroundColor: 'rgba(249,115,22,.7)' }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { labels: { color: '#8fa3bc' } } },
+          scales: {
+            x: { grid: { color: gridColor }, ticks: tickStyle },
+            y: { grid: { color: gridColor }, ticks: tickStyle, beginAtZero: true }
+          }
+        }
+      });
+    }
+
+    const lineCtx = document.getElementById('report-alert-line-chart');
+    if (lineCtx) {
+      if (reportAlertLineChart) reportAlertLineChart.destroy();
+      const sortedReadings = [...readings].reverse();
+      const lineLabels = sortedReadings.map((r, idx) => {
+        const d = new Date(r.created_at);
+        return Number.isNaN(d.getTime()) ? `#${idx + 1}` : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      });
+      let runningAlerts = 0;
+      const alertTrend = sortedReadings.map(r => {
+        const aqi = Number(r.aqi_value) || 0;
+        if (aqi > moderate) runningAlerts += 1;
+        return runningAlerts;
+      });
+      reportAlertLineChart = new Chart(lineCtx.getContext('2d'), {
+        type: 'line',
+        data: {
+          labels: lineLabels,
+          datasets: [{ label: 'Generated Alerts (Cumulative)', data: alertTrend, borderColor: '#ef4444', backgroundColor: 'rgba(239,68,68,.12)', fill: true, tension: 0.35, pointRadius: 2 }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          scales: {
+            x: { grid: { color: gridColor }, ticks: tickStyle },
+            y: { grid: { color: gridColor }, ticks: tickStyle, beginAtZero: true }
+          },
+          plugins: { legend: { labels: { color: '#8fa3bc' } } }
+        }
+      });
+    }
+
+    const stackedCtx = document.getElementById('report-sms-stacked-chart');
+    if (stackedCtx) {
+      if (reportSmsStackedChart) reportSmsStackedChart.destroy();
+      const smsSentData = usersForReport.map(u => smsByUser[u.id]?.sent || 0);
+      const smsFailedData = usersForReport.map(u => smsByUser[u.id]?.failed || 0);
+      const smsSuccessData = usersForReport.map(u => smsByUser[u.id]?.success || 0);
+      reportSmsStackedChart = new Chart(stackedCtx.getContext('2d'), {
+        type: 'bar',
+        data: {
+          labels,
+          datasets: [
+            { label: 'Sent/Pending', data: smsSentData, backgroundColor: 'rgba(59,130,246,.75)', stack: 'sms' },
+            { label: 'Failed', data: smsFailedData, backgroundColor: 'rgba(239,68,68,.75)', stack: 'sms' },
+            { label: 'Success', data: smsSuccessData, backgroundColor: 'rgba(34,197,94,.75)', stack: 'sms' }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          scales: {
+            x: { stacked: true, grid: { color: gridColor }, ticks: tickStyle },
+            y: { stacked: true, grid: { color: gridColor }, ticks: tickStyle, beginAtZero: true }
+          },
+          plugins: { legend: { labels: { color: '#8fa3bc' } } }
+        }
+      });
+    }
+
+    const pieCtx = document.getElementById('report-aqi-pie-chart');
+    if (pieCtx) {
+      if (reportAqiPieChart) reportAqiPieChart.destroy();
+      reportAqiPieChart = new Chart(pieCtx.getContext('2d'), {
+        type: 'pie',
+        data: {
+          labels: ['Good', 'Moderate', 'Unhealthy', 'Hazardous'],
+          datasets: [{
+            data: [counts.good, counts.moderate, counts.unhealthy, counts.hazardous],
+            backgroundColor: ['#22c55e', '#f59e0b', '#f97316', '#ef4444'],
+            borderWidth: 1,
+            borderColor: '#111827'
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { position: 'bottom', labels: { color: '#8fa3bc' } } }
+        }
+      });
+    }
   } catch (error) {
     console.error('Error loading reports:', error);
     metricsEl.innerHTML = '<div class="metric-card"><div class="mc-label">Report Status</div><div class="mc-value">Error</div></div>';
@@ -2993,6 +3242,7 @@ async function checkAndTriggerSMSNotifications(currentAQI) {
             aqi_value: currentAQI,
             status: 'pending'
           });
+          trackUserStat(activeSessionUserId, 'smsSent', 1);
           
           // Update user's last alert time
           await Database.updateUserLastAlert(user.id);
@@ -3015,6 +3265,7 @@ async function checkAndTriggerSMSNotifications(currentAQI) {
 // INITIALIZATION
 // ═══════════════════════════════════════════
 async function initializeAdmin() {
+  trackUserStat(activeSessionUserId, 'logins', 1);
   await loadOverview();
   
   // Set up real-time data refresh every 30 seconds
@@ -3106,6 +3357,12 @@ async function initializeAdmin() {
       
       // Check and trigger SMS notifications
       await checkAndTriggerSMSNotifications(devices[0].aqi);
+
+      const liveLevel = getAlertLevel(devices[0]);
+      if (liveLevel !== 'normal') {
+        totalGeneratedAlerts += 1;
+        trackUserStat(activeSessionUserId, 'alertsGenerated', 1);
+      }
 
       // Show dashboard toast when alert severity changes
       const currentLevel = getAlertLevel(devices[0]);
