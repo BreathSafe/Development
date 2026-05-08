@@ -1693,22 +1693,27 @@ async function loadArduinoReadingsTable() {
     const mq135Range = `${Math.min(...mq135s)}-${Math.max(...mq135s)}`;
     const co2Range = `${Math.min(...co2s)}-${Math.max(...co2s)}`;
     
-    // Update statistics cards
-    document.getElementById('temp-history').textContent = temps[0].toFixed(1) + '°C';
-    document.getElementById('temp-avg').textContent = avgTemp;
-    document.getElementById('temp-range').textContent = tempRange;
+    // Update statistics cards only if those optional elements exist
+    const setText = (id, value) => {
+      const el = document.getElementById(id);
+      if (el) el.textContent = value;
+    };
+
+    setText('temp-history', temps[0].toFixed(1) + '°C');
+    setText('temp-avg', avgTemp);
+    setText('temp-range', tempRange);
     
-    document.getElementById('hum-history').textContent = hums[0].toFixed(0) + '%';
-    document.getElementById('hum-avg').textContent = avgHum;
-    document.getElementById('hum-range').textContent = humRange;
+    setText('hum-history', hums[0].toFixed(0) + '%');
+    setText('hum-avg', avgHum);
+    setText('hum-range', humRange);
     
-    document.getElementById('mq135-history').textContent = mq135s[0];
-    document.getElementById('mq135-avg').textContent = avgMQ135;
-    document.getElementById('mq135-range').textContent = mq135Range;
+    setText('mq135-history', mq135s[0]);
+    setText('mq135-avg', avgMQ135);
+    setText('mq135-range', mq135Range);
     
-    document.getElementById('co2-history').textContent = co2s[0] + ' ppm';
-    document.getElementById('co2-avg').textContent = avgCO2;
-    document.getElementById('co2-range').textContent = co2Range;
+    setText('co2-history', co2s[0] + ' ppm');
+    setText('co2-avg', avgCO2);
+    setText('co2-range', co2Range);
     
     // Populate table
     tbody.innerHTML = readings.map((reading, index) => {
