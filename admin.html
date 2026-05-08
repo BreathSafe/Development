@@ -308,7 +308,87 @@ html, body { height: 100%; overflow: hidden; font-family: var(--font); backgroun
           </div>
         </div>
         
-        <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 16px;">
+        <!-- COMPLETE ARDUINO READINGS TABLE -->
+        <div class="card" style="margin-top: 16px;">
+          <div class="card-head">
+            <span class="card-title">📊 Complete Arduino Readings History</span>
+            <span style="font-size: 11px; color: var(--text2);">Last 20 readings from database</span>
+          </div>
+          <div class="card-body">
+            <div class="tbl-wrap">
+              <table class="tbl" id="arduino-readings-table">
+                <thead>
+                  <tr>
+                    <th>Time</th>
+                    <th>AQI</th>
+                    <th>Category</th>
+                    <th>Temperature</th>
+                    <th>Humidity</th>
+                    <th>MQ135 Raw</th>
+                    <th>CO₂ (ppm)</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody id="arduino-readings-body">
+                  <tr><td colspan="8" style="text-align:center;color:var(--text2);padding:20px;">Loading Arduino readings...</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <div style="margin-top: 12px; display: flex; gap: 8px; justify-content: flex-end;">
+              <button class="btn btn-ghost btn-sm" onclick="refreshArduinoReadings()">🔄 Refresh</button>
+              <button class="btn btn-primary btn-sm" onclick="viewAllReadings()">📋 View All</button>
+            </div>
+          </div>
+        </div>
+        
+        <!-- DETAILED SENSOR DISPLAY -->
+        <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-top: 16px;">
+          <div class="card">
+            <div class="card-head" style="background: var(--bg3);">
+              <span class="card-title" style="font-size: 12px;">🌡️ Temperature History</span>
+            </div>
+            <div class="card-body">
+              <div id="temp-history" style="font-size: 24px; font-weight: 700; color: var(--orange); font-family: var(--mono);">--°C</div>
+              <div style="font-size: 11px; color: var(--text2); margin-top: 4px;">Avg: <span id="temp-avg">--</span>°C</div>
+              <div style="font-size: 11px; color: var(--text2);">Range: <span id="temp-range">--</span>°C</div>
+            </div>
+          </div>
+          
+          <div class="card">
+            <div class="card-head" style="background: var(--bg3);">
+              <span class="card-title" style="font-size: 12px;">💧 Humidity History</span>
+            </div>
+            <div class="card-body">
+              <div id="hum-history" style="font-size: 24px; font-weight: 700; color: var(--teal); font-family: var(--mono);">--%</div>
+              <div style="font-size: 11px; color: var(--text2); margin-top: 4px;">Avg: <span id="hum-avg">--</span>%</div>
+              <div style="font-size: 11px; color: var(--text2);">Range: <span id="hum-range">--</span>%</div>
+            </div>
+          </div>
+          
+          <div class="card">
+            <div class="card-head" style="background: var(--bg3);">
+              <span class="card-title" style="font-size: 12px;">☁️ MQ135 Raw Values</span>
+            </div>
+            <div class="card-body">
+              <div id="mq135-history" style="font-size: 24px; font-weight: 700; color: var(--purple); font-family: var(--mono);">--</div>
+              <div style="font-size: 11px; color: var(--text2); margin-top: 4px;">Avg: <span id="mq135-avg">--</span></div>
+              <div style="font-size: 11px; color: var(--text2);">Range: <span id="mq135-range">--</span></div>
+            </div>
+          </div>
+          
+          <div class="card">
+            <div class="card-head" style="background: var(--bg3);">
+              <span class="card-title" style="font-size: 12px;">🫁 CO₂ Estimation</span>
+            </div>
+            <div class="card-body">
+              <div id="co2-history" style="font-size: 24px; font-weight: 700; color: var(--accent); font-family: var(--mono);">-- ppm</div>
+              <div style="font-size: 11px; color: var(--text2); margin-top: 4px;">Avg: <span id="co2-avg">--</span> ppm</div>
+              <div style="font-size: 11px; color: var(--text2);">Range: <span id="co2-range">--</span> ppm</div>
+            </div>
+          </div>
+        </div>
+        
+        <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 16px; margin-top: 16px;">
           <div class="card">
             <div class="card-head">
               <span class="card-title">Recent System Activity</span>
@@ -1155,6 +1235,9 @@ async function loadOverview() {
       <span>${a.msg}</span><span class="alert-time">${a.time}</span>
     </div>`).join('');
   
+  // Load and display complete Arduino readings table
+  await loadArduinoReadingsTable();
+  
   // Update metrics with real Arduino data
   const currentDevice = devices[0];
   document.getElementById('admin-metrics').innerHTML = [
@@ -1181,6 +1264,90 @@ async function loadOverview() {
       <span style="flex:1;font-size:12px;">${a.msg}</span>
       <span style="font-size:11px;color:var(--text3);">${a.time}</span>
     </div>`).join('') : '<p style="color:var(--text2);text-align:center;padding:20px;">No system activity recorded</p>';
+}
+
+// ═══════════════════════════════════════════
+// ARDUINO READINGS TABLE FUNCTION
+// ═══════════════════════════════════════════
+async function loadArduinoReadingsTable() {
+  try {
+    // Fetch last 20 readings
+    const readings = await Database.fetchLatestReadings(20);
+    const tbody = document.getElementById('arduino-readings-body');
+    
+    if (!readings || readings.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--text2);padding:20px;">No Arduino readings available</td></tr>';
+      return;
+    }
+    
+    // Calculate statistics
+    const temps = readings.map(r => r.temperature || 0);
+    const hums = readings.map(r => r.humidity || 0);
+    const mq135s = readings.map(r => r.mq135_raw || 0);
+    const co2s = readings.map(r => Math.round((r.mq135_raw || 0) * 0.12));
+    
+    const avgTemp = (temps.reduce((a,b) => a+b, 0) / temps.length).toFixed(1);
+    const avgHum = (hums.reduce((a,b) => a+b, 0) / hums.length).toFixed(1);
+    const avgMQ135 = Math.round(mq135s.reduce((a,b) => a+b, 0) / mq135s.length);
+    const avgCO2 = Math.round(co2s.reduce((a,b) => a+b, 0) / co2s.length);
+    
+    const tempRange = `${Math.min(...temps).toFixed(1)}-${Math.max(...temps).toFixed(1)}`;
+    const humRange = `${Math.min(...hums).toFixed(0)}-${Math.max(...hums).toFixed(0)}`;
+    const mq135Range = `${Math.min(...mq135s)}-${Math.max(...mq135s)}`;
+    const co2Range = `${Math.min(...co2s)}-${Math.max(...co2s)}`;
+    
+    // Update statistics cards
+    document.getElementById('temp-history').textContent = temps[0].toFixed(1) + '°C';
+    document.getElementById('temp-avg').textContent = avgTemp;
+    document.getElementById('temp-range').textContent = tempRange;
+    
+    document.getElementById('hum-history').textContent = hums[0].toFixed(0) + '%';
+    document.getElementById('hum-avg').textContent = avgHum;
+    document.getElementById('hum-range').textContent = humRange;
+    
+    document.getElementById('mq135-history').textContent = mq135s[0];
+    document.getElementById('mq135-avg').textContent = avgMQ135;
+    document.getElementById('mq135-range').textContent = mq135Range;
+    
+    document.getElementById('co2-history').textContent = co2s[0] + ' ppm';
+    document.getElementById('co2-avg').textContent = avgCO2;
+    document.getElementById('co2-range').textContent = co2Range;
+    
+    // Populate table
+    tbody.innerHTML = readings.map((reading, index) => {
+      const co2ppm = Math.round((reading.mq135_raw || 0) * 0.12);
+      const aqiColor = reading.aqi_value <= 50 ? '#22c55e' : 
+                       reading.aqi_value <= 100 ? '#f59e0b' : 
+                       reading.aqi_value <= 150 ? '#f97316' : '#ef4444';
+      
+      return `
+        <tr style="${index === 0 ? 'background:rgba(34,197,94,0.1);' : ''}">
+          <td style="font-size:11px; color:var(--text2);">${formatTimeAgo(reading.created_at)}</td>
+          <td style="font-weight:700; color:${aqiColor}; font-family:var(--mono);">${reading.aqi_value || '--'}</td>
+          <td><span class="status-badge" style="background:${aqiColor}20; color:${aqiColor}; font-size:10px;">${reading.aqi_category || 'Unknown'}</span></td>
+          <td style="font-family:var(--mono);">${reading.temperature ? reading.temperature.toFixed(1) : '--'}°C</td>
+          <td style="font-family:var(--mono);">${reading.humidity ? reading.humidity.toFixed(0) : '--'}%</td>
+          <td style="font-family:var(--mono); color:var(--purple);">${reading.mq135_raw || '--'}</td>
+          <td style="font-family:var(--mono); color:var(--accent);">${co2ppm} ppm</td>
+          <td><span class="status-badge status-online" style="font-size:10px;">✅ Valid</span></td>
+        </tr>
+      `;
+    }).join('');
+    
+    console.log(`✅ Loaded ${readings.length} complete Arduino readings`);
+  } catch (error) {
+    console.error('Error loading Arduino readings table:', error);
+    document.getElementById('arduino-readings-body').innerHTML = 
+      '<tr><td colspan="8" style="text-align:center;color:var(--red);padding:20px;">Error loading readings</td></tr>';
+  }
+}
+
+function refreshArduinoReadings() {
+  loadArduinoReadingsTable();
+}
+
+function viewAllReadings() {
+  alert('📊 View All Readings feature - This would open a detailed view with charts and graphs of all historical data.');
 }
 
 // ═══════════════════════════════════════════
