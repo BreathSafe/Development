@@ -399,27 +399,34 @@ html, body { height: 100%; overflow: hidden; font-family: var(--font); backgroun
           </div>
         </div>
         
-        <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 16px; margin-top: 16px;">
+        <!-- RECENT ACTIVITY (full-width) -->
+        <div class="card" style="margin-top: 16px;">
+          <div class="card-head">
+            <span class="card-title">Recent System Activity</span>
+          </div>
+          <div class="card-body">
+            <div id="system-activity"></div>
+          </div>
+        </div>
+
+        <!-- CHARTS ROW -->
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 16px;">
           <div class="card">
             <div class="card-head">
-              <span class="card-title">Recent System Activity</span>
+              <span class="card-title">📈 AQI Trend</span>
+              <span style="font-size:11px;color:var(--text2);">Last 20 readings</span>
             </div>
             <div class="card-body">
-              <div id="system-activity"></div>
+              <div style="height:200px;position:relative;"><canvas id="overview-aqi-chart"></canvas></div>
             </div>
           </div>
-          
           <div class="card">
             <div class="card-head">
-              <span class="card-title">Quick Actions</span>
+              <span class="card-title">🌡️ Temperature &amp; Humidity</span>
+              <span style="font-size:11px;color:var(--text2);">Last 20 readings</span>
             </div>
             <div class="card-body">
-              <div style="display: flex; flex-direction: column; gap: 8px;">
-                <button class="btn btn-primary" onclick="showAddUserModal()">➕ Add User</button>
-                <button class="btn btn-ghost" onclick="exportData()">📊 Export Data</button>
-                <button class="btn btn-ghost" onclick="showSettings()">⚙️ System Settings</button>
-                <button class="btn btn-danger" onclick="clearDatabase()">🗑️ Clear Database</button>
-              </div>
+              <div style="height:200px;position:relative;"><canvas id="overview-env-chart"></canvas></div>
             </div>
           </div>
         </div>
@@ -431,7 +438,21 @@ html, body { height: 100%; overflow: hidden; font-family: var(--font); backgroun
           <div class="page-title">Device Management</div>
           <div class="page-sub">Monitor and manage all air quality sensor nodes</div>
         </div>
-        
+
+        <!-- Device Map -->
+        <div class="card" style="margin-bottom:16px;">
+          <div class="card-head">
+            <span class="card-title">🗺️ Device Locations</span>
+            <span style="font-size:11px;color:var(--text2);">Click a marker to view device details</span>
+          </div>
+          <div class="card-body" style="padding:0;">
+            <div style="height:300px;border-radius:0 0 var(--radius2) var(--radius2);overflow:hidden;">
+              <div id="devices-page-map" style="width:100%;height:100%;"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Device Table -->
         <div class="card">
           <div class="card-head">
             <span class="card-title">Active Devices</span>
@@ -728,7 +749,71 @@ html, body { height: 100%; overflow: hidden; font-family: var(--font); backgroun
   </div>
 </div>
 
+<!-- DEVICE DETAIL MODAL -->
+<div class="modal-bg" id="device-detail-modal">
+  <div class="modal" style="width:640px;">
+    <div class="modal-head">
+      <span class="modal-title">📡 Device Details</span>
+      <button class="modal-close" onclick="closeModal('device-detail-modal')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;">
+        <div style="background:var(--bg3);border-radius:var(--radius);padding:12px;">
+          <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.07em;margin-bottom:4px;">Device Name</div>
+          <div style="font-weight:600;" id="dv-name">--</div>
+        </div>
+        <div style="background:var(--bg3);border-radius:var(--radius);padding:12px;">
+          <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.07em;margin-bottom:4px;">Device ID</div>
+          <div style="font-family:var(--mono);" id="dv-id">--</div>
+        </div>
+        <div style="background:var(--bg3);border-radius:var(--radius);padding:12px;">
+          <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.07em;margin-bottom:4px;">Location</div>
+          <div id="dv-location">--</div>
+        </div>
+        <div style="background:var(--bg3);border-radius:var(--radius);padding:12px;">
+          <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.07em;margin-bottom:4px;">Status</div>
+          <div id="dv-status">--</div>
+        </div>
+        <div style="background:var(--bg3);border-radius:var(--radius);padding:12px;">
+          <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.07em;margin-bottom:4px;">Coordinates</div>
+          <div style="font-family:var(--mono);font-size:12px;" id="dv-coords">--</div>
+        </div>
+        <div style="background:var(--bg3);border-radius:var(--radius);padding:12px;">
+          <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.07em;margin-bottom:4px;">Current AQI</div>
+          <div style="font-size:22px;font-weight:700;font-family:var(--mono);" id="dv-aqi">--</div>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px;">
+        <div style="display:flex;align-items:center;gap:10px;background:rgba(249,115,22,.08);border:1px solid rgba(249,115,22,.2);border-radius:var(--radius);padding:10px;">
+          <span style="font-size:20px;">🌡️</span>
+          <div><div style="font-size:18px;font-weight:700;color:var(--orange);font-family:var(--mono);" id="dv-temp">--</div><div style="font-size:10px;color:var(--text3);">Temperature</div></div>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;background:rgba(20,184,166,.08);border:1px solid rgba(20,184,166,.2);border-radius:var(--radius);padding:10px;">
+          <span style="font-size:20px;">💧</span>
+          <div><div style="font-size:18px;font-weight:700;color:var(--teal);font-family:var(--mono);" id="dv-hum">--</div><div style="font-size:10px;color:var(--text3);">Humidity</div></div>
+        </div>
+      </div>
+      <div style="font-size:12px;font-weight:600;color:var(--text2);margin-bottom:8px;">Recent Readings</div>
+      <div style="max-height:220px;overflow-y:auto;">
+        <table class="tbl" style="font-size:11.5px;">
+          <thead>
+            <tr><th>Time</th><th>AQI</th><th>Category</th><th>Temp</th><th>Humidity</th><th>CO₂</th></tr>
+          </thead>
+          <tbody id="dv-readings-body">
+            <tr><td colspan="6" style="text-align:center;color:var(--text2);padding:16px;">Loading...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost btn-sm" onclick="editDeviceFromDetail()">✏️ Edit Device</button>
+      <button class="btn btn-ghost" onclick="closeModal('device-detail-modal')">Close</button>
+    </div>
+  </div>
+</div>
+
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script>
 // ═══════════════════════════════════════════
 // SUPABASE DATABASE CONNECTION
@@ -1575,6 +1660,8 @@ async function loadArduinoReadingsTable() {
     }).join('');
     
     console.log(`✅ Loaded ${readings.length} complete Arduino readings`);
+    // Draw charts with the fetched data
+    drawOverviewCharts(readings);
   } catch (error) {
     console.error('Error loading Arduino readings table:', error);
     document.getElementById('arduino-readings-body').innerHTML = 
@@ -1591,6 +1678,175 @@ function viewAllReadings() {
 }
 
 // ═══════════════════════════════════════════
+// CHART FUNCTIONS
+// ═══════════════════════════════════════════
+let aqiChartInstance = null;
+let envChartInstance = null;
+
+function drawOverviewCharts(readings) {
+  if (!readings || readings.length === 0) return;
+  const sorted = [...readings].reverse();
+  const labels = sorted.map(r => {
+    const d = new Date(r.created_at);
+    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  });
+  const aqiData  = sorted.map(r => r.aqi_value   || 0);
+  const tempData = sorted.map(r => r.temperature  || 0);
+  const humData  = sorted.map(r => r.humidity     || 0);
+
+  const gridColor = 'rgba(255,255,255,0.05)';
+  const tickStyle = { color: '#556b82', font: { size: 10 } };
+
+  // ── AQI Chart ──────────────────────────────
+  const aqiCtx = document.getElementById('overview-aqi-chart');
+  if (aqiCtx) {
+    if (aqiChartInstance) aqiChartInstance.destroy();
+    aqiChartInstance = new Chart(aqiCtx, {
+      type: 'line',
+      data: {
+        labels,
+        datasets: [{
+          label: 'AQI',
+          data: aqiData,
+          borderColor: '#3b82f6',
+          backgroundColor: 'rgba(59,130,246,0.12)',
+          borderWidth: 2,
+          pointRadius: 3,
+          tension: 0.4,
+          fill: true
+        }]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false }, tooltip: { mode: 'index', intersect: false } },
+        scales: {
+          x: { grid: { color: gridColor }, ticks: tickStyle },
+          y: { grid: { color: gridColor }, ticks: tickStyle, beginAtZero: true }
+        }
+      }
+    });
+  }
+
+  // ── Temp + Humidity Chart ──────────────────
+  const envCtx = document.getElementById('overview-env-chart');
+  if (envCtx) {
+    if (envChartInstance) envChartInstance.destroy();
+    envChartInstance = new Chart(envCtx, {
+      type: 'line',
+      data: {
+        labels,
+        datasets: [
+          { label: 'Temp (°C)', data: tempData, borderColor: '#f97316', backgroundColor: 'rgba(249,115,22,0.1)',  borderWidth: 2, pointRadius: 3, tension: 0.4, fill: true, yAxisID: 'y'  },
+          { label: 'Humidity (%)', data: humData, borderColor: '#14b8a6', backgroundColor: 'rgba(20,184,166,0.08)', borderWidth: 2, pointRadius: 3, tension: 0.4, fill: true, yAxisID: 'y1' }
+        ]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        interaction: { mode: 'index', intersect: false },
+        plugins: { legend: { labels: { color: '#8fa3bc', font: { size: 11 }, boxWidth: 12 } } },
+        scales: {
+          x:  { grid: { color: gridColor }, ticks: tickStyle },
+          y:  { grid: { color: gridColor }, ticks: { ...tickStyle, color: '#f97316' }, position: 'left' },
+          y1: { grid: { drawOnChartArea: false }, ticks: { ...tickStyle, color: '#14b8a6' }, position: 'right' }
+        }
+      }
+    });
+  }
+}
+
+// ═══════════════════════════════════════════
+// DEVICE PAGE MAP
+// ═══════════════════════════════════════════
+let devicesPageMap = null;
+let devicesPageMarkers = [];
+let currentDetailDeviceId = null;
+
+function initDevicesMap() {
+  const container = document.getElementById('devices-page-map');
+  if (!container) return;
+  if (devicesPageMap) {
+    devicesPageMap.invalidateSize();
+    updateDevicesMapMarkers();
+    return;
+  }
+  devicesPageMap = L.map('devices-page-map', { zoomControl: true }).setView([8.4542, 124.6319], 13);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© OpenStreetMap', maxZoom: 19
+  }).addTo(devicesPageMap);
+  setTimeout(() => { devicesPageMap.invalidateSize(); updateDevicesMapMarkers(); }, 200);
+}
+
+function updateDevicesMapMarkers() {
+  if (!devicesPageMap) return;
+  devicesPageMarkers.forEach(m => m.remove());
+  devicesPageMarkers = [];
+  devices.forEach(device => {
+    if (!device.lat || !device.lng) return;
+    const col = aqiColor(device.aqi || 0);
+    const mk = L.circleMarker([device.lat, device.lng], {
+      radius: 12, color: col, fillColor: col, fillOpacity: 0.75, weight: 2
+    }).addTo(devicesPageMap);
+    mk.bindPopup(`
+      <div style="min-width:180px;font-family:'Sora',sans-serif;">
+        <div style="font-weight:600;font-size:13px;">${device.name}</div>
+        <div style="font-size:11px;color:#8fa3bc;">${device.location || ''} · ${device.id}</div>
+        <div style="margin-top:6px;font-size:12px;">AQI: <b style="color:${col}">${device.aqi || '--'}</b></div>
+        <div style="font-size:11px;color:#8fa3bc;">Status: ${device.status}</div>
+        <button onclick="openDeviceDetail('${device.id}')" style="margin-top:8px;background:rgba(59,130,246,.2);color:#60a5fa;border:1px solid rgba(59,130,246,.3);border-radius:6px;padding:3px 10px;font-size:11px;cursor:pointer;">View Details</button>
+      </div>
+    `);
+    devicesPageMarkers.push(mk);
+  });
+}
+
+async function openDeviceDetail(deviceId) {
+  const device = devices.find(d => d.id === deviceId);
+  if (!device) return;
+  currentDetailDeviceId = deviceId;
+
+  document.getElementById('dv-name').textContent     = device.name;
+  document.getElementById('dv-id').textContent       = device.id;
+  document.getElementById('dv-location').textContent = device.location || '--';
+  document.getElementById('dv-status').innerHTML     = `<span class="status-badge status-${device.status}">${device.status}</span>`;
+  document.getElementById('dv-coords').textContent   = (device.lat && device.lng) ? `${device.lat}, ${device.lng}` : '--';
+  document.getElementById('dv-aqi').textContent      = device.aqi || '--';
+  document.getElementById('dv-aqi').style.color      = aqiColor(device.aqi || 0);
+  document.getElementById('dv-temp').textContent     = device.temp ? device.temp + '°C' : '--';
+  document.getElementById('dv-hum').textContent      = device.hum  ? device.hum  + '%'  : '--';
+
+  const tbody = document.getElementById('dv-readings-body');
+  tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text2);padding:12px;">Loading readings...</td></tr>';
+  showModal('device-detail-modal');
+
+  try {
+    const readings = await Database.fetchLatestReadings(10);
+    if (!readings || readings.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text2);padding:12px;">No readings available</td></tr>';
+      return;
+    }
+    tbody.innerHTML = readings.map(r => {
+      const co2 = Math.round((r.mq135_raw || 0) * 0.12);
+      const col = r.aqi_value <= 50 ? '#22c55e' : r.aqi_value <= 100 ? '#f59e0b' : r.aqi_value <= 150 ? '#f97316' : '#ef4444';
+      return `<tr>
+        <td style="font-size:11px;color:var(--text2);">${formatTimeAgo(r.created_at)}</td>
+        <td style="font-weight:700;color:${col};font-family:var(--mono);">${r.aqi_value || '--'}</td>
+        <td><span style="font-size:10px;color:${col};">${r.aqi_category || 'Unknown'}</span></td>
+        <td style="font-family:var(--mono);">${r.temperature ? r.temperature.toFixed(1) : '--'}°C</td>
+        <td style="font-family:var(--mono);">${r.humidity ? r.humidity.toFixed(0) : '--'}%</td>
+        <td style="font-family:var(--mono);color:var(--accent);">${co2} ppm</td>
+      </tr>`;
+    }).join('');
+  } catch (e) {
+    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--red);padding:12px;">Error loading readings</td></tr>';
+  }
+}
+
+function editDeviceFromDetail() {
+  closeModal('device-detail-modal');
+  if (currentDetailDeviceId) editDevice(currentDetailDeviceId);
+}
+
+// ═══════════════════════════════════════════
 // DEVICES FUNCTIONS
 // ═══════════════════════════════════════════
 async function loadDevices() {
@@ -1598,34 +1854,19 @@ async function loadDevices() {
   table.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--text2);padding:20px;">Loading devices from database...</td></tr>';
   
   try {
-    // Fetch devices from database
     const dbDevices = await Database.getDevices();
-    
-    // Update local devices array with database data
     if (dbDevices && dbDevices.length > 0) {
       devices = dbDevices.map(d => ({
-        id: d.device_id,
-        name: d.name,
-        location: d.location,
-        lat: d.latitude,
-        lng: d.longitude,
-        status: d.status,
-        aqi: 0,
-        temp: 0,
-        hum: 0,
-        battery: 100
+        id: d.device_id, name: d.name, location: d.location,
+        lat: d.latitude, lng: d.longitude, status: d.status,
+        aqi: 0, temp: 0, hum: 0, battery: 100
       }));
     }
-    
     table.innerHTML = `
       <thead>
         <tr>
-          <th>Device ID</th>
-          <th>Name</th>
-          <th>Location</th>
-          <th>Status</th>
-          <th>Last Seen</th>
-          <th>Actions</th>
+          <th>Device ID</th><th>Name</th><th>Location</th>
+          <th>Status</th><th>Last Seen</th><th>Actions</th>
         </tr>
       </thead>
       <tbody>
@@ -1636,7 +1877,8 @@ async function loadDevices() {
             <td>${device.location}</td>
             <td><span class="status-badge status-${device.status}">${device.status}</span></td>
             <td style="font-size:11px;color:var(--text2);">${device.lastSeen || 'Never'}</td>
-            <td>
+            <td style="display:flex;gap:4px;">
+              <button class="btn btn-success btn-sm" onclick="openDeviceDetail('${device.id}')">👁 View</button>
               <button class="btn btn-ghost btn-sm" onclick="editDevice('${device.id}')">Edit</button>
               <button class="btn btn-danger btn-sm" onclick="deleteDevice('${device.id}')">Delete</button>
             </td>
@@ -1644,8 +1886,9 @@ async function loadDevices() {
         `).join('') : '<tr><td colspan="6" style="text-align:center;color:var(--text2);padding:20px;">No devices found. Add your first device!</td></tr>'}
       </tbody>
     `;
-    
     console.log(`✅ Loaded ${devices.length} devices from database`);
+    // Initialize / refresh the device page map
+    setTimeout(() => initDevicesMap(), 150);
   } catch (error) {
     console.error('Error loading devices:', error);
     table.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--red);padding:20px;">Error loading devices from database</td></tr>';
@@ -2560,11 +2803,7 @@ async function initializeAdmin() {
         time: 'Just now'
       });
       
-      // Update summary section
-      document.getElementById('summary-devices').textContent = devices.filter(d => d.status === 'online').length;
-      document.getElementById('summary-aqi').textContent = devices[0].aqi;
-      document.getElementById('summary-aqi').style.color = aqiColor(devices[0].aqi);
-      document.getElementById('summary-temp').textContent = devices[0].temp + '°C';
+      // Update summary timestamp only (counts are refreshed via loadOverview)
       document.getElementById('summary-last-update').textContent = new Date().toLocaleTimeString();
       
       // Check and trigger SMS notifications
@@ -2586,10 +2825,6 @@ async function initializeAdmin() {
         };
         
         // Update summary for offline mode
-        document.getElementById('summary-devices').textContent = devices.filter(d => d.status === 'online').length;
-        document.getElementById('summary-aqi').textContent = devices[0].aqi;
-        document.getElementById('summary-aqi').style.color = aqiColor(devices[0].aqi);
-        document.getElementById('summary-temp').textContent = devices[0].temp + '°C';
         document.getElementById('summary-data-source').textContent = 'Offline (Generated)';
         document.getElementById('summary-status').textContent = '🟡 Offline Mode';
         document.getElementById('summary-status').style.color = 'var(--yellow)';
