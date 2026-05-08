@@ -435,7 +435,7 @@ html, body { height: 100%; overflow: hidden; font-family: var(--font); backgroun
         <div class="card">
           <div class="card-head">
             <span class="card-title">Alert History</span>
-            <button class="btn btn-ghost btn-sm" onclick="clearAlerts()">Clear All</button>
+            <button class="btn btn-ghost btn-sm" onclick="showClearAlertsModal()">Clear All</button>
           </div>
           <div class="card-body">
             <div class="alert-feed" id="admin-alerts"></div>
@@ -819,6 +819,25 @@ Advice: Limit outdoor activities and stay hydrated.</textarea>
     <div class="modal-foot">
       <button class="btn btn-ghost btn-sm" onclick="editDeviceFromDetail()">✏️ Edit Device</button>
       <button class="btn btn-ghost" onclick="closeModal('device-detail-modal')">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- CLEAR ALERTS CONFIRMATION MODAL -->
+<div class="modal-bg" id="clear-alerts-modal">
+  <div class="modal" style="width:420px;">
+    <div class="modal-head">
+      <span class="modal-title">Confirm Clear Alerts</span>
+      <button class="modal-close" onclick="cancelClearAlerts()">✕</button>
+    </div>
+    <div class="modal-body">
+      <p style="color:var(--text2);line-height:1.6;">
+        This will clear alert history from the dashboard feed. Are you sure you want to continue?
+      </p>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost" onclick="cancelClearAlerts()">Cancel</button>
+      <button class="btn btn-danger" onclick="confirmClearAlerts()">Yes, Clear Alerts</button>
     </div>
   </div>
 </div>
@@ -2576,17 +2595,37 @@ function loadAlerts() {
 }
 
 function clearAlerts() {
-  if (confirm('Clear all alerts from the system?')) {
-    adminAlerts = [];
-    roleActivityLog = [];
-    loadAlerts();
-    systemActivity.unshift({
-      type: 'info',
-      msg: 'Alerts cleared by administrator',
-      time: 'Just now'
-    });
-    logRoleActivity('admin', 'info', 'Cleared alert history');
+  adminAlerts = [];
+  roleActivityLog = [];
+
+  const alertsEl = document.getElementById('admin-alerts');
+  if (alertsEl) {
+    alertsEl.innerHTML = '<p style="color:var(--text2);text-align:center;padding:20px;">No alerts recorded</p>';
   }
+  const badgeEl = document.getElementById('alert-nav-badge');
+  if (badgeEl) badgeEl.textContent = '0';
+
+  systemActivity.unshift({
+    type: 'info',
+    msg: 'Alerts cleared by administrator',
+    time: 'Just now'
+  });
+  logRoleActivity('admin', 'info', 'Cleared alert history');
+  showDashboardToast('success', 'Alerts Cleared', 'Alert history has been cleared successfully.');
+}
+
+function showClearAlertsModal() {
+  showModal('clear-alerts-modal');
+}
+
+function cancelClearAlerts() {
+  closeModal('clear-alerts-modal');
+  showDashboardToast('info', 'Clear Cancelled', 'Alert history was not cleared.');
+}
+
+function confirmClearAlerts() {
+  closeModal('clear-alerts-modal');
+  clearAlerts();
 }
 
 // ═══════════════════════════════════════════
