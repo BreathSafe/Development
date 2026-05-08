@@ -207,6 +207,10 @@ html, body { height: 100%; overflow: hidden; font-family: var(--font); backgroun
         <span>Alerts</span>
         <span class="nav-badge" id="alert-nav-badge">0</span>
       </div>
+      <div class="nav-item" onclick="showSection('reports', this)">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M7 14l4-4 3 3 5-5"/></svg>
+        <span>Reports</span>
+      </div>
       
       <div class="nav-section">Users</div>
       <div class="nav-item" onclick="showSection('users', this)">
@@ -425,7 +429,7 @@ html, body { height: 100%; overflow: hidden; font-family: var(--font); backgroun
       <div id="alerts-section" class="panel-pad" style="display: none;">
         <div class="page-header">
           <div class="page-title">System Alerts</div>
-          <div class="page-sub">Real-time alerts from Arduino devices</div>
+          <div class="page-sub">Real-time alerts from Arduino plus admin and management activity</div>
         </div>
         
         <div class="card">
@@ -435,6 +439,53 @@ html, body { height: 100%; overflow: hidden; font-family: var(--font); backgroun
           </div>
           <div class="card-body">
             <div class="alert-feed" id="admin-alerts"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- REPORTS SECTION -->
+      <div id="reports-section" class="panel-pad" style="display: none;">
+        <div class="page-header">
+          <div class="page-title">Analytics Reports</div>
+          <div class="page-sub">Threshold-based analytics and interpretation from recent readings</div>
+        </div>
+
+        <div class="metrics-grid" id="reports-metrics"></div>
+
+        <div class="card">
+          <div class="card-head">
+            <span class="card-title">Interpretation</span>
+            <button class="btn btn-ghost btn-sm" onclick="loadReports()">Refresh</button>
+          </div>
+          <div class="card-body">
+            <div id="report-interpretation" style="font-size:13px;color:var(--text2);line-height:1.6;">
+              Loading interpretation...
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <span class="card-title">AQI Threshold Distribution</span>
+            <span style="font-size:11px;color:var(--text2);">Based on latest 100 readings</span>
+          </div>
+          <div class="card-body">
+            <div class="tbl-wrap">
+              <table class="tbl">
+                <thead>
+                  <tr>
+                    <th>Category</th>
+                    <th>Range</th>
+                    <th>Readings</th>
+                    <th>Share</th>
+                    <th>Interpretation</th>
+                  </tr>
+                </thead>
+                <tbody id="report-threshold-body">
+                  <tr><td colspan="5" style="text-align:center;color:var(--text2);padding:20px;">Loading report...</td></tr>
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       </div>
@@ -1382,6 +1433,7 @@ let users = [
 
 let systemActivity = [];
 let databaseActivityLog = [];
+let roleActivityLog = [];
 
 let adminAlerts = [
   { type:'info', msg:'Arduino system online', time:'Just now' },
@@ -1409,6 +1461,7 @@ function showSection(section, element) {
   if (section === 'overview') loadOverview();
   if (section === 'devices') loadDevices();
   if (section === 'alerts') loadAlerts();
+  if (section === 'reports') loadReports();
   if (section === 'users') loadUsers();
 }
 
@@ -1848,6 +1901,90 @@ function drawOverviewCharts(readings) {
   }
 }
 
+async function loadReports() {
+  const metricsEl = document.getElementById('reports-metrics');
+  const interpretationEl = document.getElementById('report-interpretation');
+  const thresholdBody = document.getElementById('report-threshold-body');
+  if (!metricsEl || !interpretationEl || !thresholdBody) return;
+
+  try {
+    const readings = await Database.fetchLatestReadings(100);
+    if (!readings || readings.length === 0) {
+      metricsEl.innerHTML = '<div class="metric-card"><div class="mc-label">Report Status</div><div class="mc-value">No Data</div></div>';
+      interpretationEl.textContent = 'No readings available yet. Start collecting Arduino data to generate analytics.';
+      thresholdBody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--text2);padding:20px;">No report data available</td></tr>';
+      return;
+    }
+
+    const good = parseInt(document.getElementById('threshold-good')?.value || '50', 10);
+    const moderate = parseInt(document.getElementById('threshold-moderate')?.value || '100', 10);
+    const unhealthy = parseInt(document.getElementById('threshold-unhealthy')?.value || '150', 10);
+
+    const total = readings.length;
+    const counts = { good: 0, moderate: 0, unhealthy: 0, hazardous: 0 };
+    let avgAqi = 0;
+    let avgTemp = 0;
+    let avgHum = 0;
+
+    readings.forEach(r => {
+      const aqi = Number(r.aqi_value) || 0;
+      avgAqi += aqi;
+      avgTemp += Number(r.temperature) || 0;
+      avgHum += Number(r.humidity) || 0;
+
+      if (aqi <= good) counts.good += 1;
+      else if (aqi <= moderate) counts.moderate += 1;
+      else if (aqi <= unhealthy) counts.unhealthy += 1;
+      else counts.hazardous += 1;
+    });
+
+    avgAqi = Math.round(avgAqi / total);
+    avgTemp = (avgTemp / total).toFixed(1);
+    avgHum = Math.round(avgHum / total);
+
+    const riskCount = counts.unhealthy + counts.hazardous;
+    const riskRate = ((riskCount / total) * 100).toFixed(1);
+    const dominant = Object.entries(counts).sort((a, b) => b[1] - a[1])[0][0];
+    const dominantLabel = dominant === 'good' ? 'Good' : dominant === 'moderate' ? 'Moderate' : dominant === 'unhealthy' ? 'Unhealthy' : 'Hazardous';
+
+    metricsEl.innerHTML = [
+      { label: 'Readings Analyzed', val: total, unit: '', color: 'var(--accent)' },
+      { label: 'Average AQI', val: avgAqi, unit: '', color: aqiColor(avgAqi) },
+      { label: 'Average Temperature', val: avgTemp, unit: '°C', color: 'var(--orange)' },
+      { label: 'Average Humidity', val: avgHum, unit: '%', color: 'var(--teal)' },
+      { label: 'Risk Exposure', val: riskRate, unit: '%', color: riskRate > 40 ? 'var(--red)' : 'var(--yellow)' },
+      { label: 'Dominant Band', val: dominantLabel, unit: '', color: 'var(--purple)' }
+    ].map(m => `<div class="metric-card"><div class="mc-label">${m.label}</div><div class="mc-value" style="color:${m.color}">${m.val}<span class="mc-unit">${m.unit}</span></div></div>`).join('');
+
+    interpretationEl.innerHTML = `
+      Current thresholds: Good <= <b>${good}</b>, Moderate <= <b>${moderate}</b>, Unhealthy <= <b>${unhealthy}</b>.<br>
+      Across the last <b>${total}</b> readings, the dominant condition is <b>${dominantLabel}</b> with a risk exposure of <b>${riskRate}%</b> (unhealthy + hazardous bands).<br>
+      Interpretation: ${riskRate > 40 ? 'High environmental risk trend. Strengthen preventive controls and reduce outdoor exposure during peak intervals.' : riskRate > 20 ? 'Moderate risk trend. Continue monitoring and apply precautionary advisories for sensitive groups.' : 'Low risk trend. Conditions are mostly manageable; maintain continuous monitoring.'}
+    `;
+
+    const pct = (v) => ((v / total) * 100).toFixed(1) + '%';
+    thresholdBody.innerHTML = [
+      ['Good', `0 - ${good}`, counts.good, pct(counts.good), 'Safe baseline. Standard activities allowed.'],
+      ['Moderate', `${good + 1} - ${moderate}`, counts.moderate, pct(counts.moderate), 'Mild discomfort possible for sensitive individuals.'],
+      ['Unhealthy', `${moderate + 1} - ${unhealthy}`, counts.unhealthy, pct(counts.unhealthy), 'Elevated risk. Restrict prolonged outdoor exposure.'],
+      ['Hazardous', `${unhealthy + 1}+`, counts.hazardous, pct(counts.hazardous), 'Critical risk. Trigger emergency response protocols.']
+    ].map(row => `
+      <tr>
+        <td>${row[0]}</td>
+        <td>${row[1]}</td>
+        <td>${row[2]}</td>
+        <td>${row[3]}</td>
+        <td>${row[4]}</td>
+      </tr>
+    `).join('');
+  } catch (error) {
+    console.error('Error loading reports:', error);
+    metricsEl.innerHTML = '<div class="metric-card"><div class="mc-label">Report Status</div><div class="mc-value">Error</div></div>';
+    interpretationEl.textContent = 'Unable to generate analytics report right now.';
+    thresholdBody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--red);padding:20px;">Failed to generate report</td></tr>';
+  }
+}
+
 // ═══════════════════════════════════════════
 // DEVICE PAGE MAP
 // ═══════════════════════════════════════════
@@ -2195,6 +2332,7 @@ function saveSMSSettings() {
   }));
   
   console.log('✅ SMS settings saved');
+  logRoleActivity('management', 'success', 'Updated SMS notification settings');
   alert('✅ SMS settings saved successfully!');
 }
 
@@ -2357,8 +2495,21 @@ function logDatabaseActivity(type, message) {
   }
 }
 
+function logRoleActivity(actorRole, type, message) {
+  if (actorRole !== 'admin' && actorRole !== 'management') return;
+  roleActivityLog.unshift({
+    actorRole,
+    type,
+    msg: `[${actorRole.toUpperCase()}] ${message}`,
+    time: 'Just now'
+  });
+  if (roleActivityLog.length > 100) {
+    roleActivityLog = roleActivityLog.slice(0, 100);
+  }
+}
+
 function loadAlerts() {
-  console.log('🔄 Admin Alerts: Loading Arduino system alerts...');
+  console.log('🔄 Admin Alerts: Loading environmental and role activity alerts...');
   
   // Generate alerts based on current Arduino data
   const device = devices[0];
@@ -2402,8 +2553,15 @@ function loadAlerts() {
     });
   }
   
-  // Combine with admin alerts
-  const allAlerts = [...databaseAlerts, ...adminAlerts].slice(0, 10);
+  // Include activity from admin/management actions
+  const roleAlerts = roleActivityLog.map(a => ({
+    type: a.type,
+    msg: a.msg,
+    time: a.time
+  }));
+
+  // Combine with admin alerts and role activity
+  const allAlerts = [...databaseAlerts, ...roleAlerts, ...adminAlerts].slice(0, 20);
   
   // Update alert badge
   const dangerAlerts = allAlerts.filter(a => a.type === 'danger' || a.type === 'error').length;
@@ -2420,12 +2578,14 @@ function loadAlerts() {
 function clearAlerts() {
   if (confirm('Clear all alerts from the system?')) {
     adminAlerts = [];
+    roleActivityLog = [];
     loadAlerts();
     systemActivity.unshift({
       type: 'info',
       msg: 'Alerts cleared by administrator',
       time: 'Just now'
     });
+    logRoleActivity('admin', 'info', 'Cleared alert history');
   }
 }
 
@@ -2482,6 +2642,7 @@ async function saveUser() {
       msg: `New user added to database: ${name}`,
       time: 'Just now'
     });
+    logRoleActivity('admin', 'success', `Added user ${name} (${role})`);
     
     closeModal('user-modal');
     await loadUsers();
@@ -2545,6 +2706,7 @@ async function saveDevice() {
       msg: `New device added to database: ${name}`,
       time: 'Just now'
     });
+    logRoleActivity('admin', 'success', `Registered device ${id} at ${location}`);
     
     closeModal('device-modal');
     await loadDevices();
@@ -2579,6 +2741,7 @@ function saveSettings() {
     msg: 'Settings saved successfully',
     time: 'Just now'
   });
+  logRoleActivity('admin', 'success', 'Updated system settings');
   
   loadOverview();
 }
@@ -2594,6 +2757,7 @@ function saveThresholds() {
     msg: 'AQI thresholds updated',
     time: 'Just now'
   });
+  logRoleActivity('admin', 'success', `Updated AQI thresholds: Good<=${good}, Moderate<=${moderate}, Unhealthy<=${unhealthy}`);
   
   loadOverview();
 }
@@ -2640,6 +2804,7 @@ async function deleteDevice(deviceId) {
       msg: `Device deleted from database: ${deviceId}`,
       time: 'Just now'
     });
+    logRoleActivity('admin', 'warn', `Deleted device ${deviceId}`);
     
     await loadDevices();
     loadOverview();
@@ -2696,6 +2861,7 @@ async function deleteUser(userId) {
       msg: `User deleted from database: ${userId}`,
       time: 'Just now'
     });
+    logRoleActivity('admin', 'warn', `Deleted user ${userId}`);
     
     await loadUsers();
     loadOverview();
@@ -2715,6 +2881,7 @@ function exportData() {
     msg: 'Data export initiated',
     time: 'Just now'
   });
+  logRoleActivity('management', 'info', 'Generated data export request');
   loadOverview();
 }
 
@@ -2727,12 +2894,14 @@ function clearDatabase() {
           msg: 'Database cleared successfully',
           time: 'Just now'
         });
+        logRoleActivity('admin', 'warn', 'Cleared all air quality records');
       } else {
         systemActivity.unshift({
           type: 'error',
           msg: 'Failed to clear database',
           time: 'Just now'
         });
+        logRoleActivity('admin', 'error', 'Attempted database clear but failed');
       }
       loadOverview();
     });
@@ -2876,8 +3045,11 @@ async function initializeAdmin() {
       if (document.getElementById('devices-section').style.display !== 'none') {
         loadDevices();
       }
-            if (document.getElementById('alerts-section').style.display !== 'none') {
+      if (document.getElementById('alerts-section').style.display !== 'none') {
         loadAlerts();
+      }
+      if (document.getElementById('reports-section').style.display !== 'none') {
+        loadReports();
       }
       
       // Log database activity
