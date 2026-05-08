@@ -1756,15 +1756,26 @@ let aqiChartInstance = null;
 let envChartInstance = null;
 
 function drawOverviewCharts(readings) {
+  if (!window.Chart) {
+    console.error('Chart.js is not available');
+    return;
+  }
   if (!readings || readings.length === 0) return;
+
   const sorted = [...readings].reverse();
-  const labels = sorted.map(r => {
+  const numeric = (v, fallback = 0) => {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : fallback;
+  };
+  const labels = sorted.map((r, i) => {
+    if (!r || !r.created_at) return `#${i + 1}`;
     const d = new Date(r.created_at);
+    if (Number.isNaN(d.getTime())) return `#${i + 1}`;
     return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   });
-  const aqiData  = sorted.map(r => r.aqi_value   || 0);
-  const tempData = sorted.map(r => r.temperature  || 0);
-  const humData  = sorted.map(r => r.humidity     || 0);
+  const aqiData  = sorted.map(r => numeric(r && r.aqi_value, 0));
+  const tempData = sorted.map(r => numeric(r && r.temperature, 0));
+  const humData  = sorted.map(r => numeric(r && r.humidity, 0));
 
   const gridColor = 'rgba(255,255,255,0.05)';
   const tickStyle = { color: '#556b82', font: { size: 10 } };
@@ -1772,8 +1783,10 @@ function drawOverviewCharts(readings) {
   // ── AQI Chart ──────────────────────────────
   const aqiCtx = document.getElementById('overview-aqi-chart');
   if (aqiCtx) {
-    if (aqiChartInstance) aqiChartInstance.destroy();
-    aqiChartInstance = new Chart(aqiCtx, {
+    if (aqiChartInstance) {
+      try { aqiChartInstance.destroy(); } catch (e) { console.warn('AQI chart destroy warning:', e); }
+    }
+    aqiChartInstance = new Chart(aqiCtx.getContext('2d'), {
       type: 'line',
       data: {
         labels,
@@ -1797,13 +1810,16 @@ function drawOverviewCharts(readings) {
         }
       }
     });
+    setTimeout(() => aqiChartInstance && aqiChartInstance.resize(), 0);
   }
 
   // ── Temp + Humidity Chart ──────────────────
   const envCtx = document.getElementById('overview-env-chart');
   if (envCtx) {
-    if (envChartInstance) envChartInstance.destroy();
-    envChartInstance = new Chart(envCtx, {
+    if (envChartInstance) {
+      try { envChartInstance.destroy(); } catch (e) { console.warn('Env chart destroy warning:', e); }
+    }
+    envChartInstance = new Chart(envCtx.getContext('2d'), {
       type: 'line',
       data: {
         labels,
@@ -1823,6 +1839,7 @@ function drawOverviewCharts(readings) {
         }
       }
     });
+    setTimeout(() => envChartInstance && envChartInstance.resize(), 0);
   }
 }
 
