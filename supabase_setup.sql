@@ -169,7 +169,10 @@ CREATE POLICY "allow_anon_insert_devices"
   TO anon
   WITH CHECK (true);
 
--- 16. Insert default device
+-- 16. Add name column if missing (for tables created before this column was added)
+ALTER TABLE devices ADD COLUMN IF NOT EXISTS name TEXT NOT NULL DEFAULT 'Unnamed Device';
+
+-- 17. Insert default device
 INSERT INTO devices (device_id, name, location, latitude, longitude)
 VALUES ('AW-001', 'AirWatch Main Station', 'Your Location', 8.4542, 124.6319)
 ON CONFLICT (device_id) DO NOTHING;

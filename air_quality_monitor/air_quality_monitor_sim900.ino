@@ -43,6 +43,11 @@ const char* SUPABASE_URL    = "https://hqptxgzpzuhsrybuyjoy.supabase.co";
 const char* SUPABASE_APIKEY = "sb_publishable_Vn85SyMOd3cToHzCliO5Jg_AX2BO_xY";
 // Table: air_quality_readings
 
+// ── SIM900 GSM Configuration ───────────────────────────────
+#define SIM900_RX     16    // ESP32 RX2 (connect to SIM900 TX)
+#define SIM900_TX     17    // ESP32 TX2 (connect to SIM900 RX)
+#define SIM900_BAUD   9600
+
 // ── Pin definitions ───────────────────────────────────────
 #define DHT_PIN       4
 #define DHT_TYPE      DHT11
@@ -52,8 +57,9 @@ const char* SUPABASE_APIKEY = "sb_publishable_Vn85SyMOd3cToHzCliO5Jg_AX2BO_xY";
 #define LED_RED       27
 
 // ── Timing ────────────────────────────────────────────────
-const unsigned long READ_INTERVAL   = 10000;  // 10 s sensor read
-const unsigned long UPLOAD_INTERVAL = 30000;  // 30 s upload to Supabase
+const unsigned long READ_INTERVAL    = 10000;  // 10 s sensor read
+const unsigned long UPLOAD_INTERVAL  = 30000;  // 30 s upload to Supabase
+const unsigned long SMS_CHECK_INTERVAL = 60000; // 60 s check for SMS alerts
 
 // ── MQ135 calibration (adjust after warm-up) ──────────────
 // Raw ADC range: 0–4095 (12-bit)
@@ -64,6 +70,7 @@ const int AQI_MODERATE_MAX = 1800;  // 801–1800→ Moderate
 
 // ── Globals ───────────────────────────────────────────────
 DHT dht(DHT_PIN, DHT_TYPE);
+HardwareSerial sim900(2);  // Use Serial2 for SIM900
 
 float temperature   = 0;
 float humidity      = 0;
@@ -71,8 +78,9 @@ int   mq135Raw      = 0;
 int   aqiValue      = 0;      // mapped 0–500 (simplified AQI)
 String aqiCategory  = "Good";
 
-unsigned long lastRead   = 0;
-unsigned long lastUpload = 0;
+unsigned long lastRead      = 0;
+unsigned long lastUpload    = 0;
+unsigned long lastSMSCheck  = 0;
 
 // ─────────────────────────────────────────────────────────
 void setup() {
@@ -105,6 +113,9 @@ void setup() {
 
   // Connect WiFi
   connectWiFi();
+  
+  // Initialize SIM900 GSM module
+  initSIM900();
 }
 
 // ─────────────────────────────────────────────────────────
@@ -122,8 +133,20 @@ void loop() {
   // ── Upload to Supabase every UPLOAD_INTERVAL ──────────
   if (now - lastUpload >= UPLOAD_INTERVAL) {
     lastUpload = now;
-    if (WiFi.status() != WL_CONNECTED) connectWiFi();
-    uploadToSupabase();
+    if (WiFi.status() == WL_CONNECTED) {
+      uploadToSupabase();
+    } else {
+      Serial.println("⚠️  WiFi disconnected — skipping upload.");
+      connectWiFi(); // retry
+    }
+  }
+  
+  // ── Check for pending SMS alerts ─────────────────────
+  if (now - lastSMSCheck >= SMS_CHECK_INTERVAL) {
+    lastSMSCheck = now;
+    if (WiFi.status() == WL_CONNECTED) {
+      checkAndSendPendingSMS();
+    }
   }
 }
 
@@ -239,4 +262,167 @@ void connectWiFi() {
   } else {
     Serial.println("\n❌  WiFi failed — will retry next upload cycle.");
   }
+}
+
+// ═════════════════════════════════════════════════════════
+// SIM900 GSM SMS FUNCTIONS
+// ═════════════════════════════════════════════════════════
+
+void initSIM900() {
+  Serial.println("📱  Initializing SIM900 GSM module...");
+  
+  // Initialize Serial2 for SIM900
+  sim900.begin(SIM900_BAUD, SERIAL_8N1, SIM900_RX, SIM900_TX);
+  
+  delay(1000);
+  
+  // Test AT command
+  sim900.println("AT");
+  delay(500);
+  
+  if (sim900.available()) {
+    String response = sim900.readString();
+    if (response.indexOf("OK") >= 0) {
+      Serial.println("✅  SIM900 module ready");
+      
+      // Set SMS text mode
+      sim900.println("AT+CMGF=1");
+      delay(500);
+      
+      // Set SMS storage to SIM
+      sim900.println("AT+CPMS=\"SM\",\"SM\",\"SM\"");
+      delay(500);
+      
+      Serial.println("✅  SMS mode configured");
+    } else {
+      Serial.println("⚠️  SIM900 not responding — SMS alerts disabled");
+    }
+  } else {
+    Serial.println("⚠️  SIM900 not detected — SMS alerts disabled");
+  }
+}
+
+void sendSMS(const char* phoneNumber, const char* message) {
+  Serial.printf("📤  Sending SMS to %s...\n", phoneNumber);
+  
+  // Set SMS text mode
+  sim900.println("AT+CMGF=1");
+  delay(500);
+  
+  // Set recipient
+  sim900.print("AT+CMGS=\"");
+  sim900.print(phoneNumber);
+  sim900.println("\"");
+  delay(500);
+  
+  // Send message
+  sim900.print(message);
+  
+  // Send Ctrl+Z to finish (ASCII 26)
+  sim900.write(26);
+  delay(5000);  // Wait for send
+  
+  // Check response
+  if (sim900.available()) {
+    String response = sim900.readString();
+    if (response.indexOf("OK") >= 0 || response.indexOf("+CMGS") >= 0) {
+      Serial.println("✅  SMS sent successfully");
+    } else {
+      Serial.println("❌  SMS send failed");
+      Serial.println(response);
+    }
+  }
+}
+
+void checkAndSendPendingSMS() {
+  Serial.println("🔄  Checking for pending SMS notifications...");
+  
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("⚠️  No WiFi — cannot check pending SMS");
+    return;
+  }
+  
+  HTTPClient http;
+  String url = String(SUPABASE_URL) + "/rest/v1/sms_notifications?status=eq.pending&order=created_at.asc&limit=5";
+  
+  http.begin(url);
+  http.addHeader("apikey", SUPABASE_APIKEY);
+  http.addHeader("Authorization", String("Bearer ") + SUPABASE_APIKEY);
+  
+  int code = http.GET();
+  
+  if (code == 200) {
+    String response = http.getString();
+    Serial.println("📥  Pending SMS found:");
+    
+    // Parse JSON response
+    StaticJsonDocument<2048> doc;
+    DeserializationError error = deserializeJson(doc, response);
+    
+    if (!error) {
+      JsonArray notifications = doc.as<JsonArray>();
+      
+      for (JsonObject notification : notifications) {
+        const char* phone = notification["phone_number"];
+        const char* message = notification["message"];
+        int notificationId = notification["id"];
+        
+        Serial.printf("   → Sending to %s\n", phone);
+        
+        // Send SMS via SIM900
+        sendSMS(phone, message);
+        
+        // Update status to "sent"
+        updateSMSStatus(notificationId, "sent");
+        
+        delay(2000);  // Delay between SMS
+      }
+      
+      if (notifications.size() == 0) {
+        Serial.println("   (No pending SMS)");
+      } else {
+        Serial.printf("✅  Sent %d SMS notifications\n", notifications.size());
+      }
+    }
+  } else {
+    Serial.printf("❌  Error checking SMS: HTTP %d\n", code);
+  }
+  
+  http.end();
+}
+
+void updateSMSStatus(int notificationId, const char* status) {
+  HTTPClient http;
+  String url = String(SUPABASE_URL) + "/rest/v1/sms_notifications?id=eq." + notificationId;
+  
+  http.begin(url);
+  http.addHeader("apikey", SUPABASE_APIKEY);
+  http.addHeader("Authorization", String("Bearer ") + SUPABASE_APIKEY);
+  http.addHeader("Content-Type", "application/json");
+  http.addHeader("Prefer", "return=minimal");
+  
+  StaticJsonDocument<256> doc;
+  doc["status"] = status;
+  doc["sent_at"] = getISO8601Time();
+  
+  String body;
+  serializeJson(doc, body);
+  
+  int code = http.patch(body);
+  
+  if (code == 204) {
+    Serial.printf("   ✅  SMS %d marked as %s\n", notificationId, status);
+  } else {
+    Serial.printf("   ❌  Failed to update SMS %d: HTTP %d\n", notificationId, code);
+  }
+  
+  http.end();
+}
+
+String getISO8601Time() {
+  time_t now = time(nullptr);
+  struct tm* timeinfo = gmtime(&now);
+  char buf[25];
+  strftime(buf, sizeof(buf), "%Y-%m-%dT%H:%M:%SZ", timeinfo);
+  return String(buf);
 }
