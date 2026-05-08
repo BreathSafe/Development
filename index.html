@@ -1,0 +1,513 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AirWatch — Public Air Quality Dashboard</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Sora:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #0b0f1a;
+  --bg2: #111827;
+  --bg3: #1a2235;
+  --bg4: #1e2b3d;
+  --border: rgba(255,255,255,0.07);
+  --border2: rgba(255,255,255,0.13);
+  --text: #e8edf5;
+  --text2: #8fa3bc;
+  --text3: #556b82;
+  --accent: #3b82f6;
+  --accent2: #60a5fa;
+  --green: #22c55e;
+  --yellow: #f59e0b;
+  --orange: #f97316;
+  --red: #ef4444;
+  --purple: #a855f7;
+  --teal: #14b8a6;
+  --radius: 10px;
+  --radius2: 16px;
+  --font: 'Sora', sans-serif;
+  --mono: 'DM Mono', monospace;
+  --header: 56px;
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; overflow: hidden; font-family: var(--font); background: var(--bg); color: var(--text); font-size: 14px; }
+
+/* Scrollbars */
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+
+/* Layout */
+#app { display: flex; flex-direction: column; height: 100vh; }
+.topbar { height: var(--header); background: var(--bg2); border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 12px; padding: 0 16px; flex-shrink: 0; z-index: 100; }
+.topbar-logo { display: flex; align-items: center; gap: 8px; font-size: 15px; font-weight: 600; letter-spacing: -.02em; color: var(--text); }
+.logo-icon { width: 28px; height: 28px; background: var(--accent); border-radius: 7px; display: flex; align-items: center; justify-content: center; font-size: 13px; }
+.topbar-right { display: flex; align-items: center; gap: 10px; margin-left: auto; }
+.live-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); animation: blink 1.4s infinite; }
+@keyframes blink { 0%,100%{opacity:1}50%{opacity:.3} }
+.user-chip { display: flex; align-items: center; gap: 7px; background: var(--bg3); border: 1px solid var(--border); border-radius: 20px; padding: 4px 10px 4px 6px; font-size: 12px; cursor: pointer; }
+.avatar { width: 22px; height: 22px; border-radius: 50%; background: var(--accent); display: flex; align-items: center; justify-content: center; font-size: 9px; font-weight: 600; }
+
+.main { display: flex; flex: 1; overflow: hidden; }
+.content { flex: 1; overflow-y: auto; overflow-x: hidden; }
+
+/* Public Hero Section */
+.pub-hero { background: linear-gradient(135deg, #0d1829 0%, #0b1628 100%); border-bottom: 1px solid var(--border); padding: 24px 20px 20px; }
+.pub-title { font-size: 22px; font-weight: 700; letter-spacing: -.03em; }
+.pub-desc { font-size: 13px; color: var(--text2); margin-top: 4px; }
+.pub-aqi-big { font-size: 64px; font-weight: 700; font-family: var(--mono); letter-spacing: -.05em; line-height: 1; }
+.pub-cond { font-size: 16px; font-weight: 500; margin-top: 4px; }
+.pub-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin: 16px 0; }
+.pub-card { background: var(--bg3); border: 1px solid var(--border); border-radius: var(--radius2); padding: 14px 16px; }
+
+/* Cards */
+.card { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius2); margin-bottom: 16px; }
+.card-head { padding: 14px 16px 10px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
+.card-title { font-size: 13px; font-weight: 600; }
+.card-body { padding: 14px 16px; }
+
+/* AQI Indicator */
+.aqi-pill { display: inline-flex; align-items: center; gap: 5px; padding: 3px 10px; border-radius: 20px; font-size: 11px; font-weight: 600; }
+.aqi-good     { background: rgba(34,197,94,.15);  color: #22c55e; }
+.aqi-moderate { background: rgba(245,158,11,.15); color: #f59e0b; }
+.aqi-unhealthy{ background: rgba(249,115,22,.15); color: #f97316; }
+.aqi-very     { background: rgba(239,68,68,.15);  color: #ef4444; }
+.aqi-hazardous{ background: rgba(168,85,247,.15); color: #a855f7; }
+
+/* Map */
+.map-wrap { height: 340px; border-radius: var(--radius2); overflow: hidden; border: 1px solid var(--border); margin-bottom: 16px; position: relative; }
+#map { height: 100%; min-height: 340px; border-radius: 0 0 var(--radius2) var(--radius2); }
+.leaflet-tile { filter: invert(1) hue-rotate(180deg) brightness(.85) contrast(.9) saturate(.8); }
+.leaflet-container { background: #111; }
+.map-legend { position: absolute; bottom: 12px; left: 12px; z-index: 999; background: rgba(11,15,26,.88); border: 1px solid var(--border2); border-radius: var(--radius); padding: 10px 12px; font-size: 11px; backdrop-filter: blur(8px); }
+.legend-row { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
+.legend-row:last-child { margin-bottom: 0; }
+.legend-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+
+/* Device Status */
+.device-list { display: flex; flex-direction: column; gap: 8px; }
+.device-item { display: flex; align-items: center; justify-content: space-between; padding: 7px 0; border-bottom: 1px solid var(--border); }
+.device-item:last-child { border-bottom: none; }
+.device-name { font-size: 12px; font-weight: 500; }
+.device-location { font-size: 11px; color: var(--text3); }
+.device-status { display: flex; align-items: center; gap: 5px; font-size: 12px; }
+.status-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+.online { color: var(--green); }
+.offline { color: var(--red); }
+
+/* Alert Feed */
+.alert-feed { display: flex; flex-direction: column; gap: 6px; }
+.alert-item { display: flex; align-items: flex-start; gap: 9px; padding: 9px 11px; border-radius: var(--radius); font-size: 12px; }
+.alert-danger  { background: rgba(239,68,68,.1);  border: 1px solid rgba(239,68,68,.2);  color: #fca5a5; }
+.alert-warn    { background: rgba(245,158,11,.1); border: 1px solid rgba(245,158,11,.2); color: #fcd34d; }
+.alert-info    { background: rgba(59,130,246,.1); border: 1px solid rgba(59,130,246,.2); color: #93c5fd; }
+.alert-success { background: rgba(34,197,94,.1);  border: 1px solid rgba(34,197,94,.2);  color: #86efac; }
+.alert-time { margin-left: auto; color: var(--text3); white-space: nowrap; padding-left: 8px; font-size: 10.5px; }
+
+/* Login Button */
+.login-btn { background: var(--accent); color: white; border: none; padding: 6px 12px; border-radius: 20px; font-size: 11px; cursor: pointer; transition: all .2s; }
+.login-btn:hover { background: #2563eb; }
+
+/* Responsive */
+@media (max-width: 768px) {
+  .pub-grid { grid-template-columns: repeat(2, 1fr); }
+}
+</style>
+</head>
+<body>
+<div id="app">
+  <!-- TOP BAR -->
+  <header class="topbar">
+    <div class="topbar-logo">
+      <div class="logo-icon">🌬</div>
+      AirWatch
+    </div>
+    <div class="topbar-right">
+      <div class="live-dot" title="Live data"></div>
+      <span style="font-size:11px;color:var(--text3)">Live</span>
+      <button class="login-btn" onclick="showLogin()">🔐 Sign In</button>
+    </div>
+  </header>
+
+  <!-- CONTENT AREA -->
+  <div class="content">
+    <!-- PUBLIC HERO -->
+    <div class="pub-hero">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:16px;">
+        <div>
+          <div class="pub-title">Campus Air Quality</div>
+          <div class="pub-desc">University of Science & Technology · Real-time monitoring</div>
+          <div style="display:flex;align-items:center;gap:12px;margin-top:12px;flex-wrap:wrap;">
+            <div class="pub-aqi-big" id="pub-aqi-num" style="color:#f59e0b">--</div>
+            <div>
+              <div class="pub-cond" id="pub-aqi-cond" style="color:#f59e0b">Loading...</div>
+              <div style="font-size:12px;color:var(--text2);margin-top:3px;" id="pub-update-time">Updating...</div>
+            </div>
+          </div>
+        </div>
+        <div style="background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.2);border-radius:12px;padding:14px 18px;min-width:200px;">
+          <div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px;">Recommendation</div>
+          <div style="font-size:13px;color:#fcd34d;" id="pub-rec">Loading air quality data...</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- MAIN CONTENT -->
+    <div style="padding:20px;">
+      <div class="pub-grid" id="pub-metrics"></div>
+      
+      <div class="map-wrap">
+        <div id="map"></div>
+        <div class="map-legend">
+          <div class="legend-row"><div class="legend-dot" style="background:#22c55e"></div> Good (0–50)</div>
+          <div class="legend-row"><div class="legend-dot" style="background:#f59e0b"></div> Moderate (51–100)</div>
+          <div class="legend-row"><div class="legend-dot" style="background:#f97316"></div> Unhealthy (101–150)</div>
+          <div class="legend-row"><div class="legend-dot" style="background:#ef4444"></div> Very Unhealthy (151+)</div>
+        </div>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+        <div class="card">
+          <div class="card-head">
+            <span class="card-title">Active Device</span>
+            <span class="aqi-pill aqi-good" id="device-count">1 online</span>
+          </div>
+          <div class="card-body">
+            <div class="device-list" id="pub-device-list"></div>
+          </div>
+        </div>
+        
+        <div class="card">
+          <div class="card-head">
+            <span class="card-title">Recent Alerts</span>
+          </div>
+          <div class="card-body">
+            <div class="alert-feed" id="pub-alerts"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- MODALS -->
+<div id="loginModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:9999;align-items:center;justify-content:center;backdrop-filter:blur(4px);">
+  <div style="background:var(--bg2);border:1px solid var(--border2);border-radius:var(--radius2);width:380px;max-width:95vw;">
+    <div style="padding:18px 20px 14px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;">
+      <span style="font-size:15px;font-weight:600;">Sign In</span>
+      <button onclick="hideLogin()" style="background:none;border:none;color:var(--text3);cursor:pointer;font-size:18px;">✕</button>
+    </div>
+    <div style="padding:20px;">
+      <div style="display:grid;gap:8px;">
+        <button onclick="goToAdmin()" style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;background:var(--accent);color:white;border:none;border-radius:var(--radius);cursor:pointer;">
+          <span>🛡 Admin</span><span style="font-size:11px;opacity:.7">Full access</span>
+        </button>
+        <button onclick="goToManagement()" style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;background:var(--bg3);color:var(--text);border:1px solid var(--border);border-radius:var(--radius);cursor:pointer;">
+          <span>⚙️ Management</span><span style="font-size:11px;opacity:.7">Device control</span>
+        </button>
+        <button onclick="hideLogin()" style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;background:var(--bg3);color:var(--text);border:1px solid var(--border);border-radius:var(--radius);cursor:pointer;">
+          <span>🌍 Public View</span><span style="font-size:11px;opacity:.7">Read-only</span>
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+// ═══════════════════════════════════════════
+// SUPABASE DATABASE CONNECTION
+// ═══════════════════════════════════════════
+const SUPABASE_CONFIG = {
+  url: 'https://hqptxgzpzuhsrybuyjoy.supabase.co',
+  anonKey: 'sb_publishable_Vn85SyMOd3cToHzCliO5Jg_AX2BO_xY',
+  table: 'air_quality_readings'
+};
+
+// Database connection module
+const Database = {
+  async fetchLatestReadings(limit = 10) {
+    try {
+      const response = await fetch(
+        `${SUPABASE_CONFIG.url}/rest/v1/${SUPABASE_CONFIG.table}?order=created_at.desc&limit=${limit}`,
+        {
+          headers: {
+            'apikey': SUPABASE_CONFIG.anonKey,
+            'Authorization': `Bearer ${SUPABASE_CONFIG.anonKey}`
+          }
+        }
+      );
+      
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+      
+      return await response.json();
+    } catch (error) {
+      console.error('Database fetch error:', error);
+      return null;
+    }
+  },
+
+  formatTimeAgo(timestamp) {
+    const now = new Date();
+    const time = new Date(timestamp);
+    const diff = Math.floor((now - time) / 1000);
+    
+    if (diff < 60) return 'Just now';
+    if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+    if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+    return `${Math.floor(diff / 86400)}d ago`;
+  }
+};
+
+// ═══════════════════════════════════════════
+// DEVICE CONFIGURATION
+// ═══════════════════════════════════════════
+const devices = [
+  { id:'AW-001', name:'Air Quality Monitor', location:'Your Location', lat:8.4542, lng:124.6319, status:'online' }
+];
+
+// ═══════════════════════════════════════════
+// AQI HELPERS
+// ═══════════════════════════════════════════
+function aqiColor(aqi) {
+  if (aqi <= 50) return '#22c55e';
+  if (aqi <= 100) return '#f59e0b';
+  if (aqi <= 150) return '#f97316';
+  if (aqi <= 200) return '#ef4444';
+  return '#a855f7';
+}
+
+function aqiClass(aqi) {
+  if (aqi <= 50) return 'aqi-good';
+  if (aqi <= 100) return 'aqi-moderate';
+  if (aqi <= 150) return 'aqi-unhealthy';
+  if (aqi <= 200) return 'aqi-very';
+  return 'aqi-hazardous';
+}
+
+function aqiLabel(aqi) {
+  if (aqi <= 50) return 'Good';
+  if (aqi <= 100) return 'Moderate';
+  if (aqi <= 150) return 'Unhealthy';
+  if (aqi <= 200) return 'Very Unhealthy';
+  return 'Hazardous';
+}
+
+// ═══════════════════════════════════════════
+// MAP INITIALIZATION
+// ═══════════════════════════════════════════
+let map, marker;
+
+function initMap() {
+  map = L.map('map').setView([8.4542, 124.6319], 15);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© OpenStreetMap', maxZoom: 19
+  }).addTo(map);
+  
+  // Add device marker
+  updateDeviceMarker();
+}
+
+function updateDeviceMarker() {
+  if (marker) marker.remove();
+  
+  const device = devices[0];
+  const color = aqiColor(device.aqi || 0);
+  
+  marker = L.circleMarker([device.lat, device.lng], {
+    radius: 12,
+    color: color,
+    fillColor: color,
+    fillOpacity: 0.75,
+    weight: 2
+  }).addTo(map);
+  
+  marker.bindPopup(`
+    <div style="min-width:180px;font-family:'Sora',sans-serif;">
+      <div style="font-weight:600;font-size:13px;margin-bottom:6px;">${device.name}</div>
+      <div style="font-size:11px;color:#8fa3bc;margin-bottom:8px;">${device.location} · <b>${device.id}</b></div>
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+        <div style="font-size:28px;font-weight:700;color:${color};font-family:'DM Mono',monospace;">${device.aqi || '--'}</div>
+        <div>
+          <div style="font-size:11px;font-weight:600;color:${color}">${aqiLabel(device.aqi || 0)}</div>
+          <div style="font-size:10px;color:#8fa3bc;">AQI Index</div>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;font-size:11px;">
+        <div>🌡 ${device.temp || '--'}°C</div><div>💧 ${device.hum || '--'}%</div>
+        <div>☁ CO₂ ${device.co2 || '--'}ppm</div><div>🔋 ${device.battery || '--'}%</div>
+      </div>
+    </div>
+  `);
+}
+
+// ═══════════════════════════════════════════
+// PUBLIC DASHBOARD FUNCTIONS
+// ═══════════════════════════════════════════
+async function updatePublicDashboard() {
+  console.log('🔄 Public Dashboard: Fetching data from Supabase...');
+  
+  const readings = await Database.fetchLatestReadings(10);
+  let displayData = null;
+  let usingRealData = false;
+  
+  if (readings && readings.length > 0) {
+    console.log(`✅ Public Dashboard: Found ${readings.length} real readings from Supabase`);
+    usingRealData = true;
+    const latestReading = readings[0];
+    
+    displayData = {
+      aqi: latestReading.aqi_value || 0,
+      temp: latestReading.temperature || 0,
+      hum: latestReading.humidity || 0,
+      co2: Math.round((latestReading.mq135_raw || 0) * 0.12),
+      battery: 85 + Math.random() * 15,
+      lastSeen: Database.formatTimeAgo(latestReading.created_at)
+    };
+  } else {
+    console.log('⚠️ Public Dashboard: No Supabase data, showing placeholder');
+    displayData = {
+      aqi: 0,
+      temp: 0,
+      hum: 0,
+      co2: 0,
+      battery: 100,
+      lastSeen: 'No data'
+    };
+  }
+  
+  // Update device with real data
+  devices[0] = { ...devices[0], ...displayData };
+  
+  // Update main AQI display
+  document.getElementById('pub-aqi-num').textContent = displayData.aqi;
+  document.getElementById('pub-aqi-num').style.color = aqiColor(displayData.aqi);
+  
+  const cond = aqiLabel(displayData.aqi);
+  document.getElementById('pub-aqi-cond').textContent = cond;
+  document.getElementById('pub-aqi-cond').style.color = aqiColor(displayData.aqi);
+  document.getElementById('pub-update-time').textContent = `Updated ${displayData.lastSeen}`;
+  
+  // Update recommendation
+  const recs = {
+    'Good': 'Air quality is satisfactory. Great day for outdoor activities!',
+    'Moderate': 'Sensitive groups should limit outdoor activity. Others can proceed normally.',
+    'Unhealthy': 'Everyone may begin to experience health effects. Limit prolonged outdoor exertion.',
+    'Very Unhealthy': 'Health alert! Everyone should avoid prolonged outdoor exertion.',
+    'Hazardous': 'Emergency conditions. Everyone should avoid all outdoor activity.'
+  };
+  document.getElementById('pub-rec').textContent = recs[cond];
+  
+  // Update metrics
+  document.getElementById('pub-metrics').innerHTML = [
+    {label:'Current AQI',val:displayData.aqi,unit:'',color:aqiColor(displayData.aqi)},
+    {label:'Temperature',val:displayData.temp,unit:'°C',color:'var(--orange)'},
+    {label:'Humidity',val:displayData.hum,unit:'%',color:'var(--teal)'},
+    {label:'CO₂ Level',val:displayData.co2,unit:'ppm',color:'var(--accent)'},
+  ].map(m=>`<div class="pub-card">
+    <div style="font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--text3);margin-bottom:8px;">${m.label}</div>
+    <div style="font-size:24px;font-weight:600;font-family:var(--mono);color:${m.color}">${m.val}<span style="font-size:13px;font-weight:400;color:var(--text2);margin-left:2px">${m.unit}</span></div>
+  </div>`).join('');
+  
+  // Update device list
+  const device = devices[0];
+  document.getElementById('pub-device-list').innerHTML = `
+    <div class="device-item">
+      <div>
+        <div class="device-name">${device.name}</div>
+        <div class="device-location">${device.location}</div>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;">
+        <span class="aqi-pill ${aqiClass(device.aqi)}">${device.aqi}</span>
+        <span class="device-status online" style="font-size:11px;">
+          <span class="status-dot" style="background:var(--green)"></span>online
+        </span>
+      </div>
+    </div>`;
+  
+  // Update alerts based on real data
+  const alerts = [];
+  if (readings && readings.length > 0) {
+    readings.slice(0, 4).forEach(reading => {
+      if (reading.aqi_value > 100) {
+        alerts.push({
+          type: 'danger',
+          msg: `AQI ${reading.aqi_value} exceeds safe threshold`,
+          time: Database.formatTimeAgo(reading.created_at)
+        });
+      } else if (reading.aqi_value > 50) {
+        alerts.push({
+          type: 'warn',
+          msg: `Moderate air quality detected (AQI: ${reading.aqi_value})`,
+          time: Database.formatTimeAgo(reading.created_at)
+        });
+      }
+    });
+  }
+  
+  if (alerts.length === 0) {
+    alerts.push({
+      type: 'success',
+      msg: 'Air quality is within safe limits',
+      time: 'Just now'
+    });
+  }
+  
+  document.getElementById('pub-alerts').innerHTML = alerts.map(a=>`
+    <div class="alert-item alert-${a.type}">
+      <span>${a.msg}</span><span class="alert-time">${a.time}</span>
+    </div>`).join('');
+  
+  // Update map marker
+  if (map) updateDeviceMarker();
+  
+  // Show data source indicator
+  if (usingRealData) {
+    const indicator = document.createElement('div');
+    indicator.style.cssText = 'position:fixed;top:70px;right:16px;background:rgba(34,197,94,.9);color:white;padding:4px 8px;border-radius:4px;font-size:11px;z-index:9999;';
+    indicator.textContent = '🟢 LIVE DATA';
+    document.body.appendChild(indicator);
+    setTimeout(() => indicator.remove(), 3000);
+  }
+}
+
+// ═══════════════════════════════════════════
+// LOGIN FUNCTIONS
+// ═══════════════════════════════════════════
+function showLogin() {
+  document.getElementById('loginModal').style.display = 'flex';
+}
+
+function hideLogin() {
+  document.getElementById('loginModal').style.display = 'none';
+}
+
+function goToAdmin() {
+  window.location.href = 'admin.html';
+}
+
+function goToManagement() {
+  window.location.href = 'management.html';
+}
+
+// ═══════════════════════════════════════════
+// INITIALIZATION
+// ═══════════════════════════════════════════
+async function initializeDashboard() {
+  await updatePublicDashboard();
+  initMap();
+  
+  // Set up real-time data refresh every 30 seconds
+  setInterval(updatePublicDashboard, 30000);
+}
+
+// Start the dashboard
+initializeDashboard();
+</script>
+</body>
+</html>

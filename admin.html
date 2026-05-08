@@ -1,0 +1,1621 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AirWatch — Admin Dashboard</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Sora:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #0b0f1a;
+  --bg2: #111827;
+  --bg3: #1a2235;
+  --bg4: #1e2b3d;
+  --border: rgba(255,255,255,0.07);
+  --border2: rgba(255,255,255,0.13);
+  --text: #e8edf5;
+  --text2: #8fa3bc;
+  --text3: #556b82;
+  --accent: #3b82f6;
+  --accent2: #60a5fa;
+  --green: #22c55e;
+  --yellow: #f59e0b;
+  --orange: #f97316;
+  --red: #ef4444;
+  --purple: #a855f7;
+  --teal: #14b8a6;
+  --radius: 10px;
+  --radius2: 16px;
+  --font: 'Sora', sans-serif;
+  --mono: 'DM Mono', monospace;
+  --sidebar: 220px;
+  --header: 56px;
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; overflow: hidden; font-family: var(--font); background: var(--bg); color: var(--text); font-size: 14px; }
+
+/* Scrollbars */
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+
+/* Layout */
+#app { display: flex; flex-direction: column; height: 100vh; }
+.topbar { height: var(--header); background: var(--bg2); border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 12px; padding: 0 16px; flex-shrink: 0; z-index: 100; }
+.topbar-logo { display: flex; align-items: center; gap: 8px; font-size: 15px; font-weight: 600; letter-spacing: -.02em; color: var(--text); }
+.logo-icon { width: 28px; height: 28px; background: var(--accent); border-radius: 7px; display: flex; align-items: center; justify-content: center; font-size: 13px; }
+.topbar-right { display: flex; align-items: center; gap: 10px; margin-left: auto; }
+.live-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); animation: blink 1.4s infinite; }
+@keyframes blink { 0%,100%{opacity:1}50%{opacity:.3} }
+.user-chip { display: flex; align-items: center; gap: 7px; background: var(--bg3); border: 1px solid var(--border); border-radius: 20px; padding: 4px 10px 4px 6px; font-size: 12px; cursor: pointer; }
+.avatar { width: 22px; height: 22px; border-radius: 50%; background: var(--accent); display: flex; align-items: center; justify-content: center; font-size: 9px; font-weight: 600; }
+
+.main { display: flex; flex: 1; overflow: hidden; }
+
+/* Sidebar */
+.sidebar { width: var(--sidebar); background: var(--bg2); border-right: 1px solid var(--border); display: flex; flex-direction: column; flex-shrink: 0; overflow-y: auto; }
+.nav-section { padding: 12px 10px 4px; font-size: 10px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: var(--text3); }
+.nav-item { display: flex; align-items: center; gap: 9px; padding: 8px 12px; border-radius: var(--radius); margin: 1px 6px; cursor: pointer; color: var(--text2); font-size: 13px; transition: all .15s; }
+.nav-item:hover { background: var(--bg3); color: var(--text); }
+.nav-item.active { background: rgba(59,130,246,.15); color: var(--accent2); }
+.nav-item svg { flex-shrink: 0; opacity: .8; }
+.nav-badge { margin-left: auto; background: var(--red); color: #fff; font-size: 10px; padding: 1px 6px; border-radius: 10px; font-weight: 600; }
+
+/* Content */
+.content { flex: 1; overflow-y: auto; overflow-x: hidden; }
+.panel-pad { padding: 20px; }
+
+/* Page Header */
+.page-header { margin-bottom: 20px; }
+.page-title { font-size: 20px; font-weight: 600; letter-spacing: -.02em; }
+.page-sub { font-size: 13px; color: var(--text2); margin-top: 3px; }
+
+/* Metrics Grid */
+.metrics-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 20px; }
+.metric-card { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius2); padding: 16px; position: relative; overflow: hidden; }
+.metric-card::before { content: ''; position: absolute; inset: 0; background: linear-gradient(135deg, var(--accent-glow, transparent) 0%, transparent 60%); opacity: .06; pointer-events: none; }
+.mc-label { font-size: 11px; color: var(--text3); text-transform: uppercase; letter-spacing: .08em; margin-bottom: 8px; }
+.mc-value { font-size: 26px; font-weight: 600; font-family: var(--mono); letter-spacing: -.04em; }
+.mc-unit { font-size: 12px; font-weight: 400; color: var(--text2); margin-left: 2px; }
+.mc-delta { font-size: 11px; margin-top: 5px; display: flex; align-items: center; gap: 4px; }
+
+/* Cards */
+.card { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius2); margin-bottom: 16px; }
+.card-head { padding: 14px 16px 10px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
+.card-title { font-size: 13px; font-weight: 600; }
+.card-body { padding: 14px 16px; }
+
+/* Table */
+.tbl { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.tbl th { padding: 8px 12px; text-align: left; font-size: 10.5px; color: var(--text3); text-transform: uppercase; letter-spacing: .08em; font-weight: 600; border-bottom: 1px solid var(--border); }
+.tbl td { padding: 10px 12px; border-bottom: 1px solid var(--border); color: var(--text2); vertical-align: middle; }
+.tbl tr:last-child td { border-bottom: none; }
+.tbl tr:hover td { background: rgba(255,255,255,.02); }
+
+/* Buttons */
+.btn { display: inline-flex; align-items: center; gap: 6px; padding: 7px 14px; border-radius: var(--radius); font-size: 12px; font-family: var(--font); font-weight: 500; cursor: pointer; border: none; transition: all .2s; }
+.btn-primary { background: var(--accent); color: #fff; }
+.btn-primary:hover { background: #2563eb; }
+.btn-ghost { background: transparent; color: var(--text2); border: 1px solid var(--border); }
+.btn-ghost:hover { border-color: var(--border2); color: var(--text); background: var(--bg3); }
+.btn-danger { background: rgba(239,68,68,.15); color: var(--red); border: 1px solid rgba(239,68,68,.25); }
+.btn-danger:hover { background: rgba(239,68,68,.25); }
+.btn-sm { padding: 4px 10px; font-size: 11px; }
+.btn-success { background: rgba(34,197,94,.15); color: var(--green); border: 1px solid rgba(34,197,94,.25); }
+
+/* Forms */
+.form-group { margin-bottom: 14px; }
+.form-label { display: block; font-size: 11px; font-weight: 600; color: var(--text2); text-transform: uppercase; letter-spacing: .07em; margin-bottom: 5px; }
+.form-input { width: 100%; background: var(--bg3); border: 1px solid var(--border); color: var(--text); padding: 8px 12px; border-radius: var(--radius); font-size: 13px; font-family: var(--font); outline: none; }
+.form-input:focus { border-color: var(--accent); }
+.form-select { width: 100%; background: var(--bg3); border: 1px solid var(--border); color: var(--text); padding: 8px 12px; border-radius: var(--radius); font-size: 13px; font-family: var(--font); outline: none; appearance: none; cursor: pointer; }
+
+/* Modal */
+.modal-bg { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.65); z-index: 9999; align-items: center; justify-content: center; backdrop-filter: blur(4px); }
+.modal-bg.open { display: flex; }
+.modal { background: var(--bg2); border: 1px solid var(--border2); border-radius: var(--radius2); width: 480px; max-width: 95vw; max-height: 90vh; overflow-y: auto; animation: slideUp .2s ease; }
+@keyframes slideUp { from{opacity:0;transform:translateY(16px)} to{opacity:1;transform:translateY(0)} }
+.modal-head { padding: 18px 20px 14px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
+.modal-title { font-size: 15px; font-weight: 600; }
+.modal-close { background: none; border: none; color: var(--text3); cursor: pointer; font-size: 18px; line-height: 1; padding: 0; }
+.modal-close:hover { color: var(--text); }
+.modal-body { padding: 20px; }
+.modal-foot { padding: 14px 20px; border-top: 1px solid var(--border); display: flex; justify-content: flex-end; gap: 8px; }
+
+/* Login */
+.login-wrap { display: flex; align-items: center; justify-content: center; height: 100%; background: var(--bg); }
+.login-card { background: var(--bg2); border: 1px solid var(--border2); border-radius: var(--radius2); padding: 36px 32px; width: 360px; }
+.login-logo { font-size: 20px; font-weight: 700; letter-spacing: -.03em; margin-bottom: 6px; display: flex; align-items: center; gap: 9px; }
+.login-sub { font-size: 13px; color: var(--text2); margin-bottom: 28px; }
+
+/* Status Indicators */
+.status-badge { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 12px; font-size: 10px; font-weight: 600; }
+.status-active { background: rgba(34,197,94,.15); color: var(--green); }
+.status-inactive { background: rgba(239,68,68,.15); color: var(--red); }
+
+/* Map */
+.map-wrap { height: 400px; border-radius: var(--radius2); overflow: hidden; border: 1px solid var(--border); margin-bottom: 16px; position: relative; }
+#admin-map { height: 100%; }
+.leaflet-tile { filter: invert(1) hue-rotate(180deg) brightness(.85) contrast(.9) saturate(.8); }
+.leaflet-container { background: #111; }
+.map-legend { position: absolute; bottom: 12px; left: 12px; z-index: 999; background: rgba(11,15,26,.88); border: 1px solid var(--border2); border-radius: var(--radius); padding: 10px 12px; font-size: 11px; backdrop-filter: blur(8px); }
+.legend-row { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
+.legend-row:last-child { margin-bottom: 0; }
+.legend-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+
+/* AQI Indicator */
+.aqi-pill { display: inline-flex; align-items: center; gap: 5px; padding: 3px 10px; border-radius: 20px; font-size: 11px; font-weight: 600; }
+.aqi-good     { background: rgba(34,197,94,.15);  color: #22c55e; }
+.aqi-moderate { background: rgba(245,158,11,.15); color: #f59e0b; }
+.aqi-unhealthy{ background: rgba(249,115,22,.15); color: #f97316; }
+.aqi-very     { background: rgba(239,68,68,.15);  color: #ef4444; }
+.aqi-hazardous{ background: rgba(168,85,247,.15); color: #a855f7; }
+
+/* Alert Feed */
+.alert-feed { display: flex; flex-direction: column; gap: 6px; }
+.alert-item { display: flex; align-items: flex-start; gap: 9px; padding: 9px 11px; border-radius: var(--radius); font-size: 12px; }
+.alert-danger  { background: rgba(239,68,68,.1);  border: 1px solid rgba(239,68,68,.2);  color: #fca5a5; }
+.alert-warn    { background: rgba(245,158,11,.1); border: 1px solid rgba(245,158,11,.2); color: #fcd34d; }
+.alert-info    { background: rgba(59,130,246,.1); border: 1px solid rgba(59,130,246,.2); color: #93c5fd; }
+.alert-success { background: rgba(34,197,94,.1);  border: 1px solid rgba(34,197,94,.2);  color: #86efac; }
+.alert-time { margin-left: auto; color: var(--text3); white-space: nowrap; padding-left: 8px; font-size: 10.5px; }
+
+/* Responsive */
+@media (max-width: 768px) {
+  .sidebar { display: none; }
+  .metrics-grid { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+<div id="app">
+  <!-- TOP BAR -->
+  <header class="topbar">
+    <div class="topbar-logo">
+      <div class="logo-icon">🛡</div>
+      AirWatch Admin
+    </div>
+    <div class="topbar-right">
+      <div class="live-dot" title="Live data"></div>
+      <span style="font-size:11px;color:var(--text3)">Live</span>
+      <div class="user-chip">
+        <div class="avatar">A</div>
+        <span style="color:var(--text2)">Admin</span>
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="logout()">Logout</button>
+    </div>
+  </header>
+
+  <div class="main">
+    <!-- SIDEBAR -->
+    <nav class="sidebar">
+      <div class="nav-section">System</div>
+      <div class="nav-item active" onclick="showSection('overview', this)">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+        <span>Overview</span>
+      </div>
+      
+      <div class="nav-section">Devices</div>
+      <div class="nav-item" onclick="showSection('devices', this)">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8m-4-4v4"/></svg>
+        <span>Device Management</span>
+      </div>
+      <div class="nav-item" onclick="showSection('alerts', this)">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+        <span>Alerts</span>
+        <span class="nav-badge" id="alert-nav-badge">0</span>
+      </div>
+      
+      <div class="nav-section">Users</div>
+      <div class="nav-item" onclick="showSection('users', this)">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+        <span>User Management</span>
+      </div>
+      
+      <div class="nav-section">Settings</div>
+      <div class="nav-item" onclick="showSection('settings', this)">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        <span>System Settings</span>
+      </div>
+    </nav>
+
+    <!-- CONTENT AREA -->
+    <div class="content">
+      <!-- OVERVIEW SECTION -->
+      <div id="overview-section" class="panel-pad">
+        <div class="page-header">
+          <div class="page-title">System Overview</div>
+          <div class="page-sub">Complete system monitoring and administration</div>
+        </div>
+        
+        <div class="card" style="margin-bottom: 20px; background: linear-gradient(135deg, var(--bg2) 0%, var(--bg3) 100%);">
+          <div class="card-head" style="border-bottom: 1px solid var(--border);">
+            <span class="card-title">📊 System Summary</span>
+            <span id="summary-status" style="font-size: 11px; color: var(--green);">🟢 System Online</span>
+          </div>
+          <div class="card-body">
+            <div id="admin-summary" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px;">
+              <div style="text-align: center; padding: 10px;">
+                <div style="font-size: 24px; font-weight: 700; color: var(--accent); font-family: var(--mono);" id="summary-devices">--</div>
+                <div style="font-size: 11px; color: var(--text2); text-transform: uppercase; letter-spacing: 0.05em;">Active Devices</div>
+              </div>
+              <div style="text-align: center; padding: 10px;">
+                <div style="font-size: 24px; font-weight: 700; color: var(--green); font-family: var(--mono);" id="summary-aqi">--</div>
+                <div style="font-size: 11px; color: var(--text2); text-transform: uppercase; letter-spacing: 0.05em;">Current AQI</div>
+              </div>
+              <div style="text-align: center; padding: 10px;">
+                <div style="font-size: 24px; font-weight: 700; color: var(--orange); font-family: var(--mono);" id="summary-temp">--</div>
+                <div style="font-size: 11px; color: var(--text2); text-transform: uppercase; letter-spacing: 0.05em;">Temperature</div>
+              </div>
+              <div style="text-align: center; padding: 10px;">
+                <div style="font-size: 24px; font-weight: 700; color: var(--purple); font-family: var(--mono);" id="summary-readings">--</div>
+                <div style="font-size: 11px; color: var(--text2); text-transform: uppercase; letter-spacing: 0.05em;">Total Readings</div>
+              </div>
+            </div>
+            <div style="margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border);">
+              <div style="display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: var(--text2);">
+                <span>Last Data Update: <span id="summary-last-update" style="color: var(--text);">Never</span></span>
+                <span>Data Source: <span id="summary-data-source" style="color: var(--text);">--</span></span>
+              </div>
+            </div>
+          </div>
+        </div>
+        
+        <div class="metrics-grid" id="admin-metrics"></div>
+        
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+          <div class="card">
+            <div class="card-head">
+              <span class="card-title">Device Map - Real-time Arduino Location</span>
+            </div>
+            <div class="card-body" style="padding: 0;">
+              <div class="map-wrap" style="height: 300px; margin: 0; border-radius: 0 0 var(--radius2) var(--radius2); position: relative;">
+                <div id="overview-map" style="width: 100%; height: 100%; min-height: 300px;"></div>
+                <div class="map-legend">
+                  <div class="legend-row"><div class="legend-dot" style="background:#22c55e"></div> Good (0–50)</div>
+                  <div class="legend-row"><div class="legend-dot" style="background:#f59e0b"></div> Moderate (51–100)</div>
+                  <div class="legend-row"><div class="legend-dot" style="background:#f97316"></div> Unhealthy (101–150)</div>
+                  <div class="legend-row"><div class="legend-dot" style="background:#ef4444"></div> Very Unhealthy (151+)</div>
+                </div>
+                <div id="map-loading" style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);color:var(--text3);text-align:center;display:none;">
+                  <div style="font-size:16px;margin-bottom:8px;">🗺️ Loading Map...</div>
+                  <div style="font-size:12px;">Initializing Arduino device location</div>
+                </div>
+              </div>
+            </div>
+          </div>
+          
+          <div>
+            <div class="card" style="margin-bottom: 16px;">
+              <div class="card-head">
+                <span class="card-title">Current Arduino Reading</span>
+              </div>
+              <div class="card-body">
+                <div id="overview-current-reading"></div>
+              </div>
+            </div>
+            
+            <div class="card">
+              <div class="card-head">
+                <span class="card-title">Recent Alerts</span>
+              </div>
+              <div class="card-body">
+                <div class="alert-feed" id="overview-alerts"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        
+        <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 16px;">
+          <div class="card">
+            <div class="card-head">
+              <span class="card-title">Recent System Activity</span>
+            </div>
+            <div class="card-body">
+              <div id="system-activity"></div>
+            </div>
+          </div>
+          
+          <div class="card">
+            <div class="card-head">
+              <span class="card-title">Quick Actions</span>
+            </div>
+            <div class="card-body">
+              <div style="display: flex; flex-direction: column; gap: 8px;">
+                <button class="btn btn-primary" onclick="showAddUserModal()">➕ Add User</button>
+                <button class="btn btn-ghost" onclick="exportData()">📊 Export Data</button>
+                <button class="btn btn-ghost" onclick="showSettings()">⚙️ System Settings</button>
+                <button class="btn btn-danger" onclick="clearDatabase()">🗑️ Clear Database</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- DEVICES SECTION -->
+      <div id="devices-section" class="panel-pad" style="display: none;">
+        <div class="page-header">
+          <div class="page-title">Device Management</div>
+          <div class="page-sub">Monitor and manage all air quality sensor nodes</div>
+        </div>
+        
+        <div class="card">
+          <div class="card-head">
+            <span class="card-title">Active Devices</span>
+            <button class="btn btn-primary btn-sm" onclick="showAddDeviceModal()">+ Add Device</button>
+          </div>
+          <div class="card-body">
+            <div class="tbl-wrap">
+              <table class="tbl" id="devices-table"></table>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      
+      <!-- ALERTS SECTION -->
+      <div id="alerts-section" class="panel-pad" style="display: none;">
+        <div class="page-header">
+          <div class="page-title">System Alerts</div>
+          <div class="page-sub">Real-time alerts from Arduino devices</div>
+        </div>
+        
+        <div class="card">
+          <div class="card-head">
+            <span class="card-title">Alert History</span>
+            <button class="btn btn-ghost btn-sm" onclick="clearAlerts()">Clear All</button>
+          </div>
+          <div class="card-body">
+            <div class="alert-feed" id="admin-alerts"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- USERS SECTION -->
+      <div id="users-section" class="panel-pad" style="display: none;">
+        <div class="page-header">
+          <div class="page-title">User Management</div>
+          <div class="page-sub">Manage user accounts and permissions</div>
+        </div>
+        
+        <div class="card">
+          <div class="card-head">
+            <span class="card-title">System Users</span>
+            <button class="btn btn-primary btn-sm" onclick="showAddUserModal()">+ Add User</button>
+          </div>
+          <div class="card-body">
+            <div class="tbl-wrap">
+              <table class="tbl" id="users-table"></table>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- SETTINGS SECTION -->
+      <div id="settings-section" class="panel-pad" style="display: none;">
+        <div class="page-header">
+          <div class="page-title">System Settings</div>
+          <div class="page-sub">Configure system parameters and thresholds</div>
+        </div>
+        
+        <div class="card">
+          <div class="card-head">
+            <span class="card-title">Database Configuration</span>
+          </div>
+          <div class="card-body">
+            <div class="form-group">
+              <label class="form-label">Supabase URL</label>
+              <input class="form-input" type="text" id="supabase-url" value="https://hqptxgzpzuhsrybuyjoy.supabase.co">
+            </div>
+            <div class="form-group">
+              <label class="form-label">API Key</label>
+              <input class="form-input" type="text" id="supabase-key" value="sb_publishable_Vn85SyMOd3cToHzCliO5Jg_AX2BO_xY">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Table Name</label>
+              <input class="form-input" type="text" id="table-name" value="air_quality_readings">
+            </div>
+            <button class="btn btn-primary" onclick="saveSettings()">Save Settings</button>
+          </div>
+        </div>
+        
+        <div class="card">
+          <div class="card-head">
+            <span class="card-title">AQI Thresholds</span>
+          </div>
+          <div class="card-body">
+            <div class="form-group">
+              <label class="form-label">Good AQI Max</label>
+              <input class="form-input" type="number" id="threshold-good" value="50">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Moderate AQI Max</label>
+              <input class="form-input" type="number" id="threshold-moderate" value="100">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Unhealthy AQI Max</label>
+              <input class="form-input" type="number" id="threshold-unhealthy" value="150">
+            </div>
+            <button class="btn btn-primary" onclick="saveThresholds()">Save Thresholds</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- MODALS -->
+<div class="modal-bg" id="user-modal">
+  <div class="modal">
+    <div class="modal-head">
+      <span class="modal-title">Add User</span>
+      <button class="modal-close" onclick="closeModal('user-modal')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label class="form-label">Name</label>
+        <input class="form-input" id="user-name" placeholder="Enter user name">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Email</label>
+        <input class="form-input" type="email" id="user-email" placeholder="user@example.com">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Role</label>
+        <select class="form-select" id="user-role">
+          <option value="admin">Admin</option>
+          <option value="management">Management</option>
+          <option value="viewer">Viewer</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Department</label>
+        <input class="form-input" id="user-dept" placeholder="Department">
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost" onclick="closeModal('user-modal')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveUser()">Create User</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-bg" id="device-modal">
+  <div class="modal">
+    <div class="modal-head">
+      <span class="modal-title">Add Device</span>
+      <button class="modal-close" onclick="closeModal('device-modal')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label class="form-label">Device Name</label>
+        <input class="form-input" id="device-name" placeholder="Air Quality Monitor">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Device ID</label>
+        <input class="form-input" id="device-id" placeholder="AW-001">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Location</label>
+        <input class="form-input" id="device-location" placeholder="Building Name">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Latitude</label>
+        <input class="form-input" id="device-lat" placeholder="8.4542">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Longitude</label>
+        <input class="form-input" id="device-lng" placeholder="124.6319">
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost" onclick="closeModal('device-modal')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveDevice()">Add Device</button>
+    </div>
+  </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+// ═══════════════════════════════════════════
+// SUPABASE DATABASE CONNECTION
+// ═══════════════════════════════════════════
+const SUPABASE_CONFIG = {
+  url: 'https://hqptxgzpzuhsrybuyjoy.supabase.co',
+  anonKey: 'sb_publishable_Vn85SyMOd3cToHzCliO5Jg_AX2BO_xY',
+  table: 'air_quality_readings'
+};
+
+// Database connection module with caching for offline support
+const Database = {
+  async fetchLatestReadings(limit = 10) {
+    try {
+      const response = await fetch(
+        `${SUPABASE_CONFIG.url}/rest/v1/${SUPABASE_CONFIG.table}?order=created_at.desc&limit=${limit}`,
+        {
+          headers: {
+            'apikey': SUPABASE_CONFIG.anonKey,
+            'Authorization': `Bearer ${SUPABASE_CONFIG.anonKey}`
+          }
+        }
+      );
+      
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+      
+      const data = await response.json();
+      
+      // Cache successful data for offline use
+      if (data && data.length > 0) {
+        cachedReadings = data;
+        lastCacheTime = new Date();
+        console.log('✅ Data cached for offline use');
+      }
+      
+      return data;
+    } catch (error) {
+      console.error('Database fetch error:', error);
+      
+      // Return cached data if available
+      if (cachedReadings && cachedReadings.length > 0) {
+        console.log('📦 Using cached data from:', lastCacheTime);
+        return cachedReadings;
+      }
+      
+      return null;
+    }
+  },
+
+  async clearAllData() {
+    try {
+      const response = await fetch(`${SUPABASE_CONFIG.url}/rest/v1/${SUPABASE_CONFIG.table}`, {
+        method: 'DELETE',
+        headers: {
+          'apikey': SUPABASE_CONFIG.anonKey,
+          'Authorization': `Bearer ${SUPABASE_CONFIG.anonKey}`
+        }
+      });
+      
+      return response.ok;
+    } catch (error) {
+      console.error('Clear database error:', error);
+      return false;
+    }
+  },
+
+  formatTimeAgo(timestamp) {
+    const now = new Date();
+    const time = new Date(timestamp);
+    const diff = Math.floor((now - time) / 1000);
+    
+    if (diff < 60) return 'Just now';
+    if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+    if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+    return `${Math.floor(diff / 86400)}d ago`;
+  }
+};
+
+// Helper function for time formatting
+function formatTimeAgo(timestamp) {
+  return Database.formatTimeAgo(timestamp);
+}
+
+// Helper function for map initialization
+function initializeMapInOverview() {
+  loadOverview();
+}
+
+// ═══════════════════════════════════════════
+// OFFLINE DATA GENERATION
+// ═══════════════════════════════════════════
+function generateOfflineData() {
+  console.log('🔄 Generating offline fallback data...');
+  
+  // Generate realistic mock Arduino data
+  const now = new Date();
+  const mockData = [];
+  
+  for (let i = 0; i < 5; i++) {
+    const timeOffset = i * 30000; // 30 seconds apart
+    const mockTime = new Date(now.getTime() - timeOffset);
+    
+    mockData.push({
+      id: i + 1,
+      created_at: mockTime.toISOString(),
+      temperature: 25 + Math.random() * 10, // 25-35°C
+      humidity: 40 + Math.random() * 30,    // 40-70%
+      mq135_raw: Math.floor(400 + Math.random() * 1600), // 400-2000
+      aqi_value: Math.floor(30 + Math.random() * 120),   // 30-150
+      aqi_category: 'Moderate'
+    });
+  }
+  
+  // Log offline mode
+  logDatabaseActivity('warn', 'System running in offline mode - using cached/mock data');
+  
+  return mockData;
+}
+
+// Cache for offline storage
+let cachedReadings = null;
+let lastCacheTime = null;
+
+// ═══════════════════════════════════════════
+// AQI HELPERS
+// ═══════════════════════════════════════════
+function aqiColor(aqi) {
+  if (aqi <= 50) return '#22c55e';
+  if (aqi <= 100) return '#f59e0b';
+  if (aqi <= 150) return '#f97316';
+  if (aqi <= 200) return '#ef4444';
+  return '#a855f7';
+}
+
+function aqiClass(aqi) {
+  if (aqi <= 50) return 'aqi-good';
+  if (aqi <= 100) return 'aqi-moderate';
+  if (aqi <= 150) return 'aqi-unhealthy';
+  if (aqi <= 200) return 'aqi-very';
+  return 'aqi-hazardous';
+}
+
+function aqiLabel(aqi) {
+  if (aqi <= 50) return 'Good';
+  if (aqi <= 100) return 'Moderate';
+  if (aqi <= 150) return 'Unhealthy';
+  if (aqi <= 200) return 'Very Unhealthy';
+  return 'Hazardous';
+}
+
+// ═══════════════════════════════════════════
+// DATA STORE
+// ═══════════════════════════════════════════
+let devices = [
+  { id:'AW-001', name:'Air Quality Monitor', location:'Your Location', lat:8.4542, lng:124.6319, status:'online', aqi:0, temp:0, hum:0, battery:100 }
+];
+
+let users = [
+  { id:'USR-001', name:'Admin User', email:'admin@system.com', role:'admin', dept:'System', status:'active', created:'2024-01-10' },
+  { id:'USR-002', name:'Manager User', email:'manager@system.com', role:'management', dept:'Operations', status:'active', created:'2024-02-14' }
+];
+
+let systemActivity = [];
+let databaseActivityLog = [];
+
+let adminAlerts = [
+  { type:'info', msg:'Arduino system online', time:'Just now' },
+  { type:'success', msg:'Database connection active', time:'1m ago' }
+];
+
+let adminMap, adminMarkers = {};
+
+// ═══════════════════════════════════════════
+// NAVIGATION
+// ═══════════════════════════════════════════
+function showSection(section, element) {
+  // Hide all sections
+  document.querySelectorAll('[id$="-section"]').forEach(s => s.style.display = 'none');
+  
+  // Show selected section
+  document.getElementById(`${section}-section`).style.display = 'block';
+  
+  // Update active nav
+  document.querySelectorAll('.nav-item').forEach(item => item.classList.remove('active'));
+  element.classList.add('active');
+  
+  // Load section data
+  if (section === 'overview') loadOverview();
+  if (section === 'devices') loadDevices();
+  if (section === 'alerts') loadAlerts();
+  if (section === 'users') loadUsers();
+}
+
+// ═══════════════════════════════════════════
+// OVERVIEW FUNCTIONS
+// ═══════════════════════════════════════════
+async function loadOverview() {
+  console.log('🔄 Admin Dashboard: Fetching Arduino data from Supabase...');
+  
+  let readings = null;
+  let usingRealData = false;
+  let dataSource = 'Offline (Mock Data)';
+  
+  try {
+    readings = await Database.fetchLatestReadings(10);
+    if (readings && readings.length > 0) {
+      usingRealData = true;
+      dataSource = 'Supabase Database';
+      console.log(`✅ Admin Dashboard: Connected to database - ${readings.length} readings found`);
+    }
+  } catch (error) {
+    console.warn('⚠️ Database connection failed, using offline fallback:', error.message);
+    // Use cached data or generate mock data for offline mode
+    readings = generateOfflineData();
+    dataSource = 'Offline (Cached/Mock)';
+  }
+  
+  const totalReadings = readings ? readings.length : 0;
+  const avgAQI = readings && readings.length > 0 ? 
+    Math.round(readings.reduce((sum, r) => sum + (r.aqi_value || 0), 0) / readings.length) : 0;
+  
+  // Update devices with real or fallback Arduino data
+  if (readings && readings.length > 0) {
+    const latest = readings[0];
+    devices[0] = {
+      ...devices[0],
+      aqi: latest.aqi_value || 0,
+      temp: latest.temperature || 0,
+      hum: latest.humidity || 0,
+      co2: Math.round((latest.mq135_raw || 0) * 0.12),
+      battery: 85 + Math.random() * 15,
+      lastSeen: usingRealData ? formatTimeAgo(latest.created_at) : 'Offline Mode'
+    };
+    console.log(`✅ Admin Dashboard: Updated with ${usingRealData ? 'real' : 'offline'} data - AQI: ${devices[0].aqi}, Temp: ${devices[0].temp}°C`);
+  }
+  
+  // Update summary section
+  document.getElementById('summary-devices').textContent = devices.filter(d => d.status === 'online').length;
+  document.getElementById('summary-aqi').textContent = devices[0].aqi;
+  document.getElementById('summary-aqi').style.color = aqiColor(devices[0].aqi);
+  document.getElementById('summary-temp').textContent = devices[0].temp + '°C';
+  document.getElementById('summary-readings').textContent = totalReadings;
+  document.getElementById('summary-last-update').textContent = new Date().toLocaleTimeString();
+  document.getElementById('summary-data-source').textContent = dataSource;
+  document.getElementById('summary-status').textContent = usingRealData ? '🟢 System Online' : '🟡 Offline Mode';
+  document.getElementById('summary-status').style.color = usingRealData ? 'var(--green)' : 'var(--yellow)';
+  
+  // Show loading indicator
+  const loadingIndicator = document.getElementById('map-loading');
+  if (loadingIndicator) loadingIndicator.style.display = 'block';
+
+  // Initialize overview map with delay and proper container sizing
+  setTimeout(() => {
+    const mapContainer = document.getElementById('overview-map');
+    if (!mapContainer) {
+      console.error('❌ Map container not found');
+      if (loadingIndicator) loadingIndicator.style.display = 'none';
+      return;
+    }
+    
+    // Ensure container has proper dimensions
+    if (mapContainer.offsetWidth === 0 || mapContainer.offsetHeight === 0) {
+      console.log('🔄 Map container has no dimensions, retrying...');
+      if (loadingIndicator) loadingIndicator.style.display = 'none';
+      setTimeout(() => initializeMapInOverview(), 500);
+      return;
+    }
+    
+    if (!adminMap) {
+      try {
+        adminMap = L.map('overview-map', { 
+          zoomControl: true,
+          center: [8.4542, 124.6319],
+          zoom: 15
+        }).setView([8.4542, 124.6319], 15);
+        
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          attribution: '© OpenStreetMap',
+          maxZoom: 19
+        }).addTo(adminMap);
+        
+        // Force map to refresh after a short delay
+        setTimeout(() => {
+          adminMap.invalidateSize();
+          console.log('✅ Overview map initialized successfully');
+        }, 100);
+        
+      } catch (error) {
+        console.error('❌ Map initialization failed:', error);
+        
+        // Show error message in map container
+        mapContainer.innerHTML = `
+          <div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--text3);text-align:center;padding:20px;">
+            <div>
+              <div style="font-size:16px;margin-bottom:8px;">🗺️ Map Loading Error</div>
+              <div style="font-size:12px;">Unable to load map tiles</div>
+              <div style="font-size:10px;margin-top:8px;">Check internet connection</div>
+            </div>
+          </div>
+        `;
+        return;
+      }
+    }
+    
+    // Clear old markers
+    if (adminMarkers['overview-map']) adminMarkers['overview-map'].forEach(mk => mk.remove());
+    adminMarkers['overview-map'] = [];
+    
+    // Add Arduino device marker to overview map
+    const device = devices[0];
+    const color = aqiColor(device.aqi);
+    const mk = L.circleMarker([device.lat, device.lng], {
+      radius: 12,
+      color: color,
+      fillColor: color,
+      fillOpacity: 0.75,
+      weight: 2
+    }).addTo(adminMap);
+  
+  mk.bindPopup(`
+    <div style="min-width:200px;font-family:'Sora',sans-serif;">
+      <div style="font-weight:600;font-size:13px;margin-bottom:6px;">${device.name}</div>
+      <div style="font-size:11px;color:#8fa3bc;margin-bottom:8px;">${device.location} · <b>${device.id}</b></div>
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+        <div style="font-size:32px;font-weight:700;color:${color};font-family:'DM Mono',monospace;">${device.aqi}</div>
+        <div>
+          <div style="font-size:11px;font-weight:600;color:${color}">${aqiLabel(device.aqi)}</div>
+          <div style="font-size:10px;color:#8fa3bc;">Arduino AQI</div>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;font-size:11px;">
+        <div>🌡 ${device.temp}°C</div><div>💧 ${device.hum}%</div>
+        <div>☁ CO₂ ${device.co2}ppm</div><div>🔋 ${device.battery}%</div>
+      </div>
+      <div style="margin-top:6px;font-size:10px;color:#8fa3bc;">Last seen: ${device.lastSeen}</div>
+    </div>
+  `);
+  
+  adminMarkers['overview-map'].push(mk);
+    
+    // Hide loading indicator
+    if (loadingIndicator) loadingIndicator.style.display = 'none';
+    
+    // If no real data, show default position
+    if (!readings || readings.length === 0) {
+      console.log('ℹ️ No Arduino data available, showing default location');
+    }
+    
+  }, 100); // End of setTimeout
+  
+  // Update current reading display in overview
+  document.getElementById('overview-current-reading').innerHTML = `
+    <div style="display:flex;align-items:center;gap:12px;">
+      <div style="text-align:center;">
+        <div style="font-size:28px;font-weight:700;color:${aqiColor(device.aqi)};font-family:var(--mono);">${device.aqi}</div>
+        <div style="font-size:10px;color:var(--text2);">AQI</div>
+      </div>
+      <div style="flex:1;">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:11px;">
+          <div>🌡 <strong>${device.temp}°C</strong></div>
+          <div>💧 <strong>${device.hum}%</strong></div>
+          <div>☁ <strong>${device.co2}ppm</strong></div>
+          <div>🔋 <strong>${device.battery}%</strong></div>
+        </div>
+        <div style="margin-top:6px;font-size:10px;color:var(--text3);">
+          Device: ${device.name}<br>
+          Status: <span style="color:var(--green)">${device.status}</span>
+        </div>
+      </div>
+    </div>
+  `;
+  
+  // Update alerts in overview
+  const alerts = [];
+  if (device.aqi > 100) {
+    alerts.push({
+      type: 'danger',
+      msg: `Arduino ${device.id}: AQI ${device.aqi} exceeds safe threshold`,
+      time: device.lastSeen
+    });
+  } else if (device.aqi > 50) {
+    alerts.push({
+      type: 'warn',
+      msg: `Arduino ${device.id}: Moderate air quality (AQI: ${device.aqi})`,
+      time: device.lastSeen
+    });
+  }
+  
+  if (alerts.length === 0) {
+    alerts.push({
+      type: 'success',
+      msg: `Arduino ${device.id}: All systems normal`,
+      time: device.lastSeen
+    });
+  }
+  
+  document.getElementById('overview-alerts').innerHTML = alerts.map(a=>`
+    <div class="alert-item alert-${a.type}">
+      <span>${a.msg}</span><span class="alert-time">${a.time}</span>
+    </div>`).join('');
+  
+  // Update metrics with real Arduino data
+  const currentDevice = devices[0];
+  document.getElementById('admin-metrics').innerHTML = [
+    {label:'Current AQI',val:currentDevice.aqi,unit:'',color:currentDevice.aqi <= 50 ? 'var(--green)' : currentDevice.aqi <= 100 ? 'var(--yellow)' : 'var(--red)'},
+    {label:'Temperature',val:currentDevice.temp,unit:'°C',color:'var(--orange)'},
+    {label:'Humidity',val:currentDevice.hum,unit:'%',color:'var(--teal)'},
+    {label:'CO₂ Level',val:currentDevice.co2,unit:'ppm',color:'var(--accent)'},
+    {label:'Total Readings',val:totalReadings,unit:'',color:'var(--purple)'},
+    {label:'Device Status',val:currentDevice.status,unit:'',color:currentDevice.status === 'online' ? 'var(--green)' : 'var(--red)'},
+  ].map(m=>`<div class="metric-card">
+    <div class="mc-label">${m.label}</div>
+    <div class="mc-value">${m.val}<span class="mc-unit">${m.unit}</span></div>
+  </div>`).join('');
+  
+  // Update system activity with database data
+  const allActivity = [...databaseActivityLog, ...systemActivity].slice(0, 10);
+  document.getElementById('system-activity').innerHTML = allActivity.length > 0 ? allActivity.map(a=>`
+    <div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--border);">
+      <div style="width:8px;height:8px;border-radius:50%;background:${
+        a.type === 'success' ? 'var(--green)' : 
+        a.type === 'warn' ? 'var(--yellow)' : 
+        a.type === 'error' ? 'var(--red)' : 'var(--accent)'
+      }"></div>
+      <span style="flex:1;font-size:12px;">${a.msg}</span>
+      <span style="font-size:11px;color:var(--text3);">${a.time}</span>
+    </div>`).join('') : '<p style="color:var(--text2);text-align:center;padding:20px;">No system activity recorded</p>';
+}
+
+// ═══════════════════════════════════════════
+// DEVICES FUNCTIONS
+// ═══════════════════════════════════════════
+function loadDevices() {
+  const table = document.getElementById('devices-table');
+  table.innerHTML = `
+    <thead>
+      <tr>
+        <th>Device ID</th>
+        <th>Name</th>
+        <th>Location</th>
+        <th>Status</th>
+        <th>AQI</th>
+        <th>Battery</th>
+        <th>Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${devices.map(device => `
+        <tr>
+          <td style="font-family:var(--mono);">${device.id}</td>
+          <td>${device.name}</td>
+          <td>${device.location}</td>
+          <td><span class="status-badge status-${device.status}">${device.status}</span></td>
+          <td>${device.aqi || '--'}</td>
+          <td>${device.battery || '--'}%</td>
+          <td>
+            <button class="btn btn-ghost btn-sm" onclick="editDevice('${device.id}')">Edit</button>
+            <button class="btn btn-danger btn-sm" onclick="deleteDevice('${device.id}')">Delete</button>
+          </td>
+        </tr>
+      `).join('')}
+    </tbody>
+  `;
+}
+
+// ═══════════════════════════════════════════
+// USERS FUNCTIONS
+// ═══════════════════════════════════════════
+function loadUsers() {
+  const table = document.getElementById('users-table');
+  table.innerHTML = `
+    <thead>
+      <tr>
+        <th>User ID</th>
+        <th>Name</th>
+        <th>Email</th>
+        <th>Role</th>
+        <th>Department</th>
+        <th>Status</th>
+        <th>Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${users.map(user => `
+        <tr>
+          <td style="font-family:var(--mono);">${user.id}</td>
+          <td>${user.name}</td>
+          <td>${user.email}</td>
+          <td><span class="status-badge">${user.role}</span></td>
+          <td>${user.dept}</td>
+          <td><span class="status-badge status-${user.status}">${user.status}</span></td>
+          <td>
+            <button class="btn btn-ghost btn-sm" onclick="editUser('${user.id}')">Edit</button>
+            <button class="btn btn-danger btn-sm" onclick="deleteUser('${user.id}')">Delete</button>
+          </td>
+        </tr>
+      `).join('')}
+    </tbody>
+  `;
+}
+
+// ═══════════════════════════════════════════
+// MAP FUNCTIONS
+// ═══════════════════════════════════════════
+async function loadMap() {
+  console.log('🔄 Admin Map: Loading Arduino device map...');
+  
+  // Initialize map if not exists
+  if (!adminMap) {
+    adminMap = L.map('admin-map', { zoomControl: true }).setView([8.4542, 124.6319], 15);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '© OpenStreetMap', maxZoom: 19
+    }).addTo(adminMap);
+  }
+  
+  // Update device with latest Arduino data
+  const readings = await Database.fetchLatestReadings(1);
+  if (readings && readings.length > 0) {
+    const latest = readings[0];
+    devices[0] = {
+      ...devices[0],
+      aqi: latest.aqi_value || 0,
+      temp: latest.temperature || 0,
+      hum: latest.humidity || 0,
+      co2: Math.round((latest.mq135_raw || 0) * 0.12),
+      battery: 85 + Math.random() * 15,
+      lastSeen: formatTimeAgo(latest.created_at)
+    };
+  }
+  
+  // Clear old markers
+  if (adminMarkers['admin-map']) adminMarkers['admin-map'].forEach(mk => mk.remove());
+  adminMarkers['admin-map'] = [];
+  
+  // Add device markers
+  devices.forEach(device => {
+    const color = aqiColor(device.aqi);
+    const mk = L.circleMarker([device.lat, device.lng], {
+      radius: 12,
+      color: color,
+      fillColor: color,
+      fillOpacity: 0.75,
+      weight: 2
+    }).addTo(adminMap);
+    
+    mk.bindPopup(`
+      <div style="min-width:200px;font-family:'Sora',sans-serif;">
+        <div style="font-weight:600;font-size:13px;margin-bottom:6px;">${device.name}</div>
+        <div style="font-size:11px;color:#8fa3bc;margin-bottom:8px;">${device.location} · <b>${device.id}</b></div>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+          <div style="font-size:32px;font-weight:700;color:${color};font-family:'DM Mono',monospace;">${device.aqi}</div>
+          <div>
+            <div style="font-size:11px;font-weight:600;color:${color}">${aqiLabel(device.aqi)}</div>
+            <div style="font-size:10px;color:#8fa3bc;">Arduino AQI</div>
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;font-size:11px;">
+          <div>🌡 ${device.temp}°C</div><div>💧 ${device.hum}%</div>
+          <div>☁ CO₂ ${device.co2}ppm</div><div>🔋 ${device.battery}%</div>
+        </div>
+        <div style="margin-top:6px;font-size:10px;color:#8fa3bc;">Last seen: ${device.lastSeen}</div>
+      </div>
+    `);
+    
+    adminMarkers['admin-map'].push(mk);
+  });
+  
+  // Update current reading display
+  updateCurrentReading();
+  updateMapAlerts();
+}
+
+function updateCurrentReading() {
+  const device = devices[0];
+  document.getElementById('current-reading').innerHTML = `
+    <div style="display:flex;align-items:center;gap:12px;">
+      <div style="text-align:center;">
+        <div style="font-size:36px;font-weight:700;color:${aqiColor(device.aqi)};font-family:var(--mono);">${device.aqi}</div>
+        <div style="font-size:11px;color:var(--text2);">AQI</div>
+      </div>
+      <div style="flex:1;">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:12px;">
+          <div>🌡 <strong>${device.temp}°C</strong></div>
+          <div>💧 <strong>${device.hum}%</strong></div>
+          <div>☁ <strong>${device.co2}ppm</strong></div>
+          <div>🔋 <strong>${device.battery}%</strong></div>
+        </div>
+        <div style="margin-top:8px;font-size:11px;color:var(--text3);">
+          Device: ${device.name}<br>
+          Location: ${device.location}<br>
+          Status: <span style="color:var(--green)">${device.status}</span>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function updateMapAlerts() {
+  const device = devices[0];
+  const alerts = [];
+  
+  // Generate alerts based on Arduino data
+  if (device.aqi > 100) {
+    alerts.push({
+      type: 'danger',
+      msg: `Arduino ${device.id}: AQI ${device.aqi} exceeds safe threshold`,
+      time: device.lastSeen
+    });
+  } else if (device.aqi > 50) {
+    alerts.push({
+      type: 'warn',
+      msg: `Arduino ${device.id}: Moderate air quality (AQI: ${device.aqi})`,
+      time: device.lastSeen
+    });
+  }
+  
+  if (device.battery < 20) {
+    alerts.push({
+      type: 'warn',
+      msg: `Arduino ${device.id}: Low battery (${device.battery}%)`,
+      time: device.lastSeen
+    });
+  }
+  
+  if (alerts.length === 0) {
+    alerts.push({
+      type: 'success',
+      msg: `Arduino ${device.id}: All systems normal`,
+      time: device.lastSeen
+    });
+  }
+  
+  document.getElementById('map-alerts').innerHTML = alerts.map(a=>`
+    <div class="alert-item alert-${a.type}">
+      <span>${a.msg}</span><span class="alert-time">${a.time}</span>
+    </div>`).join('');
+}
+
+// ═══════════════════════════════════════════
+// ALERTS FUNCTIONS
+// ═══════════════════════════════════════════
+function logDatabaseActivity(type, message) {
+  databaseActivityLog.unshift({
+    type: type,
+    msg: message,
+    time: formatTimeAgo(new Date())
+  });
+  
+  // Keep only last 50 entries
+  if (databaseActivityLog.length > 50) {
+    databaseActivityLog = databaseActivityLog.slice(0, 50);
+  }
+}
+
+function loadAlerts() {
+  console.log('🔄 Admin Alerts: Loading Arduino system alerts...');
+  
+  // Generate alerts based on current Arduino data
+  const device = devices[0];
+  const databaseAlerts = [];
+  
+  // AQI threshold alerts
+  if (device.aqi > 100) {
+    databaseAlerts.push({
+      type: 'danger',
+      msg: `Arduino ${device.id}: AQI ${device.aqi} exceeds safe threshold`,
+      time: device.lastSeen
+    });
+  } else if (device.aqi > 50) {
+    databaseAlerts.push({
+      type: 'warn',
+      msg: `Arduino ${device.id}: Moderate air quality (AQI: ${device.aqi})`,
+      time: device.lastSeen
+    });
+  }
+  
+  // Battery alerts
+  if (device.battery < 20) {
+    databaseAlerts.push({
+      type: 'warn',
+      msg: `Arduino ${device.id}: Low battery (${device.battery}%)`,
+      time: device.lastSeen
+    });
+  }
+  
+  // Connection alerts
+  if (device.status === 'offline') {
+    databaseAlerts.push({
+      type: 'error',
+      msg: `Arduino ${device.id}: Device offline`,
+      time: device.lastSeen
+    });
+  }
+  
+  // Success alert if no issues
+  if (databaseAlerts.length === 0) {
+    databaseAlerts.push({
+      type: 'success',
+      msg: `Arduino ${device.id}: All systems normal`,
+      time: device.lastSeen
+    });
+  }
+  
+  // Combine with admin alerts
+  const allAlerts = [...databaseAlerts, ...adminAlerts].slice(0, 10);
+  
+  // Update alert badge
+  const dangerAlerts = allAlerts.filter(a => a.type === 'danger' || a.type === 'error').length;
+  document.getElementById('alert-nav-badge').textContent = dangerAlerts;
+  
+  // Display alerts
+  document.getElementById('admin-alerts').innerHTML = allAlerts.length > 0 ? allAlerts.map(alert => `
+    <div class="alert-item alert-${alert.type}">
+      <span>${alert.msg}</span><span class="alert-time">${alert.time}</span>
+    </div>
+  `).join('') : '<p style="color:var(--text2);text-align:center;padding:20px;">No alerts recorded</p>';
+}
+
+function clearAlerts() {
+  if (confirm('Clear all alerts from the system?')) {
+    adminAlerts = [];
+    loadAlerts();
+    systemActivity.unshift({
+      type: 'info',
+      msg: 'Alerts cleared by administrator',
+      time: 'Just now'
+    });
+  }
+}
+
+// ═══════════════════════════════════════════
+// MODAL FUNCTIONS
+// ═══════════════════════════════════════════
+function showModal(modalId) {
+  document.getElementById(modalId).classList.add('open');
+}
+
+function closeModal(modalId) {
+  document.getElementById(modalId).classList.remove('open');
+}
+
+function showAddUserModal() {
+  showModal('user-modal');
+}
+
+function showAddDeviceModal() {
+  showModal('device-modal');
+}
+
+// ═══════════════════════════════════════════
+// SAVE FUNCTIONS
+// ═══════════════════════════════════════════
+function saveUser() {
+  const name = document.getElementById('user-name').value;
+  const email = document.getElementById('user-email').value;
+  const role = document.getElementById('user-role').value;
+  const dept = document.getElementById('user-dept').value;
+  
+  if (!name || !email) {
+    alert('Please fill in all required fields');
+    return;
+  }
+  
+  const newUser = {
+    id: `USR-${String(users.length + 1).padStart(3, '0')}`,
+    name,
+    email,
+    role,
+    dept,
+    status: 'active',
+    created: new Date().toISOString().split('T')[0]
+  };
+  
+  users.push(newUser);
+  systemActivity.unshift({
+    type: 'success',
+    msg: `New user added: ${name}`,
+    time: 'Just now'
+  });
+  
+  closeModal('user-modal');
+  loadUsers();
+  loadOverview();
+  
+  // Clear form
+  document.getElementById('user-name').value = '';
+  document.getElementById('user-email').value = '';
+  document.getElementById('user-dept').value = '';
+}
+
+function saveDevice() {
+  const name = document.getElementById('device-name').value;
+  const id = document.getElementById('device-id').value;
+  const location = document.getElementById('device-location').value;
+  const lat = parseFloat(document.getElementById('device-lat').value);
+  const lng = parseFloat(document.getElementById('device-lng').value);
+  
+  if (!name || !id || !location) {
+    alert('Please fill in all required fields');
+    return;
+  }
+  
+  const newDevice = {
+    id,
+    name,
+    location,
+    lat,
+    lng,
+    status: 'online',
+    aqi: 0,
+    temp: 0,
+    hum: 0,
+    battery: 100
+  };
+  
+  devices.push(newDevice);
+  systemActivity.unshift({
+    type: 'success',
+    msg: `New device added: ${name}`,
+    time: 'Just now'
+  });
+  
+  closeModal('device-modal');
+  loadDevices();
+  loadOverview();
+  
+  // Clear form
+  document.getElementById('device-name').value = '';
+  document.getElementById('device-id').value = '';
+  document.getElementById('device-location').value = '';
+  document.getElementById('device-lat').value = '';
+  document.getElementById('device-lng').value = '';
+}
+
+function saveSettings() {
+  const url = document.getElementById('supabase-url').value;
+  const key = document.getElementById('supabase-key').value;
+  const table = document.getElementById('table-name').value;
+  
+  // Update config (in real app, this would save to backend)
+  SUPABASE_CONFIG.url = url;
+  SUPABASE_CONFIG.anonKey = key;
+  SUPABASE_CONFIG.table = table;
+  
+  systemActivity.unshift({
+    type: 'success',
+    msg: 'Settings saved successfully',
+    time: 'Just now'
+  });
+  
+  loadOverview();
+}
+
+function saveThresholds() {
+  const good = parseInt(document.getElementById('threshold-good').value);
+  const moderate = parseInt(document.getElementById('threshold-moderate').value);
+  const unhealthy = parseInt(document.getElementById('threshold-unhealthy').value);
+  
+  // Update thresholds (in real app, this would save to backend)
+  systemActivity.unshift({
+    type: 'success',
+    msg: 'AQI thresholds updated',
+    time: 'Just now'
+  });
+  
+  loadOverview();
+}
+
+// ═══════════════════════════════════════════
+// ACTION FUNCTIONS
+// ═══════════════════════════════════════════
+function editDevice(id) {
+  const device = devices.find(d => d.id === id);
+  if (device) {
+    // Populate modal with device data
+    document.getElementById('device-name').value = device.name;
+    document.getElementById('device-id').value = device.id;
+    document.getElementById('device-location').value = device.location;
+    document.getElementById('device-lat').value = device.lat;
+    document.getElementById('device-lng').value = device.lng;
+    
+    showModal('device-modal');
+  }
+}
+
+function deleteDevice(id) {
+  if (confirm('Are you sure you want to delete this device?')) {
+    devices = devices.filter(d => d.id !== id);
+    systemActivity.unshift({
+      type: 'warn',
+      msg: `Device deleted: ${id}`,
+      time: 'Just now'
+    });
+    loadDevices();
+    loadOverview();
+  }
+}
+
+function editUser(id) {
+  const user = users.find(u => u.id === id);
+  if (user) {
+    // Populate modal with user data
+    document.getElementById('user-name').value = user.name;
+    document.getElementById('user-email').value = user.email;
+    document.getElementById('user-role').value = user.role;
+    document.getElementById('user-dept').value = user.dept;
+    
+    showModal('user-modal');
+  }
+}
+
+function deleteUser(id) {
+  if (confirm('Are you sure you want to delete this user?')) {
+    users = users.filter(u => u.id !== id);
+    systemActivity.unshift({
+      type: 'warn',
+      msg: `User deleted: ${id}`,
+      time: 'Just now'
+    });
+    loadUsers();
+    loadOverview();
+  }
+}
+
+function exportData() {
+  const readings = Database.fetchLatestReadings(100);
+  // In real app, this would generate and download CSV/Excel
+  systemActivity.unshift({
+    type: 'info',
+    msg: 'Data export initiated',
+    time: 'Just now'
+  });
+  loadOverview();
+}
+
+function clearDatabase() {
+  if (confirm('⚠️ This will delete ALL air quality readings from the database. Are you sure?')) {
+    Database.clearAllData().then(success => {
+      if (success) {
+        systemActivity.unshift({
+          type: 'warn',
+          msg: 'Database cleared successfully',
+          time: 'Just now'
+        });
+      } else {
+        systemActivity.unshift({
+          type: 'error',
+          msg: 'Failed to clear database',
+          time: 'Just now'
+        });
+      }
+      loadOverview();
+    });
+  }
+}
+
+function showSettings() {
+  showSection('settings', document.querySelector('[onclick*="settings"]'));
+}
+
+function logout() {
+  if (confirm('Are you sure you want to logout?')) {
+    window.location.href = 'index.html';
+  }
+}
+
+// ═══════════════════════════════════════════
+// INITIALIZATION
+// ═══════════════════════════════════════════
+async function initializeAdmin() {
+  await loadOverview();
+  
+  // Set up real-time data refresh every 30 seconds
+  setInterval(async () => {
+    console.log('🔄 Admin Dashboard: Refreshing Arduino data...');
+    const readings = await Database.fetchLatestReadings(1);
+    if (readings && readings.length > 0) {
+      const latest = readings[0];
+      devices[0] = {
+        ...devices[0],
+        aqi: latest.aqi_value || 0,
+        temp: latest.temperature || 0,
+        hum: latest.humidity || 0,
+        co2: Math.round((latest.mq135_raw || 0) * 0.12),
+        battery: 85 + Math.random() * 15,
+        lastSeen: formatTimeAgo(latest.created_at)
+      };
+      
+      console.log(`✅ Admin Dashboard: Arduino data updated - AQI: ${devices[0].aqi}, Temp: ${devices[0].temp}°C, Hum: ${devices[0].hum}%`);
+      
+      // Show live data indicator
+      const indicator = document.createElement('div');
+      indicator.style.cssText = 'position:fixed;top:70px;right:16px;background:rgba(34,197,94,.9);color:white;padding:4px 8px;border-radius:4px;font-size:11px;z-index:9999;';
+      indicator.textContent = '🟢 ARDUINO LIVE';
+      document.body.appendChild(indicator);
+      setTimeout(() => indicator.remove(), 3000);
+      
+      // Refresh current view
+      if (document.getElementById('overview-section').style.display !== 'none') {
+        loadOverview();
+        // Update overview map marker without reinitializing
+        const device = devices[0];
+        const color = aqiColor(device.aqi);
+        
+        if (adminMarkers['overview-map']) adminMarkers['overview-map'].forEach(mk => mk.remove());
+        adminMarkers['overview-map'] = [];
+        
+        const mk = L.circleMarker([device.lat, device.lng], {
+          radius: 12,
+          color: color,
+          fillColor: color,
+          fillOpacity: 0.75,
+          weight: 2
+        }).addTo(adminMap);
+        
+        mk.bindPopup(`
+          <div style="min-width:200px;font-family:'Sora',sans-serif;">
+            <div style="font-weight:600;font-size:13px;margin-bottom:6px;">${device.name}</div>
+            <div style="font-size:11px;color:#8fa3bc;margin-bottom:8px;">${device.location} · <b>${device.id}</b></div>
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+              <div style="font-size:32px;font-weight:700;color:${color};font-family:'DM Mono',monospace;">${device.aqi}</div>
+              <div>
+                <div style="font-size:11px;font-weight:600;color:${color}">${aqiLabel(device.aqi)}</div>
+                <div style="font-size:10px;color:#8fa3bc;">Arduino AQI</div>
+              </div>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;font-size:11px;">
+              <div>🌡 ${device.temp}°C</div><div>💧 ${device.hum}%</div>
+              <div>☁ CO₂ ${device.co2}ppm</div><div>🔋 ${device.battery}%</div>
+            </div>
+            <div style="margin-top:6px;font-size:10px;color:#8fa3bc;">Last seen: ${device.lastSeen}</div>
+          </div>
+        `);
+        
+        adminMarkers['overview-map'].push(mk);
+      }
+      if (document.getElementById('devices-section').style.display !== 'none') {
+        loadDevices();
+      }
+            if (document.getElementById('alerts-section').style.display !== 'none') {
+        loadAlerts();
+      }
+      
+      // Log database activity
+      logDatabaseActivity('info', `Arduino data received: AQI ${devices[0].aqi}, Temp ${devices[0].temp}°C`);
+      
+      // Add system activity log
+      systemActivity.unshift({
+        type: 'info',
+        msg: `Arduino data received: AQI ${devices[0].aqi}, Temp ${devices[0].temp}°C`,
+        time: 'Just now'
+      });
+      
+      // Update summary section
+      document.getElementById('summary-devices').textContent = devices.filter(d => d.status === 'online').length;
+      document.getElementById('summary-aqi').textContent = devices[0].aqi;
+      document.getElementById('summary-aqi').style.color = aqiColor(devices[0].aqi);
+      document.getElementById('summary-temp').textContent = devices[0].temp + '°C';
+      document.getElementById('summary-last-update').textContent = new Date().toLocaleTimeString();
+    } else {
+      // Offline mode - generate fallback data
+      console.warn('⚠️ No database connection, generating offline data');
+      const offlineData = generateOfflineData();
+      if (offlineData && offlineData.length > 0) {
+        const latest = offlineData[0];
+        devices[0] = {
+          ...devices[0],
+          aqi: latest.aqi_value || 0,
+          temp: latest.temperature || 0,
+          hum: latest.humidity || 0,
+          co2: Math.round((latest.mq135_raw || 0) * 0.12),
+          battery: 85 + Math.random() * 15,
+          lastSeen: 'Offline Mode'
+        };
+        
+        // Update summary for offline mode
+        document.getElementById('summary-devices').textContent = devices.filter(d => d.status === 'online').length;
+        document.getElementById('summary-aqi').textContent = devices[0].aqi;
+        document.getElementById('summary-aqi').style.color = aqiColor(devices[0].aqi);
+        document.getElementById('summary-temp').textContent = devices[0].temp + '°C';
+        document.getElementById('summary-data-source').textContent = 'Offline (Generated)';
+        document.getElementById('summary-status').textContent = '🟡 Offline Mode';
+        document.getElementById('summary-status').style.color = 'var(--yellow)';
+        document.getElementById('summary-last-update').textContent = new Date().toLocaleTimeString();
+        
+        // Refresh current view with offline data
+        if (document.getElementById('overview-section').style.display !== 'none') {
+          loadOverview();
+        }
+      }
+    }
+  }, 30000);
+}
+
+// Start the admin dashboard
+initializeAdmin();
+</script>
+</body>
+</html>

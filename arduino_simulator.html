@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Arduino Data Simulator</title>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; background: #f5f5f5; }
+        .container { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        h1 { color: #333; text-align: center; }
+        .status { padding: 10px; border-radius: 4px; margin: 10px 0; }
+        .success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+        .error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+        .info { background: #d1ecf1; color: #0c5460; border: 1px solid #bee5eb; }
+        button { background: #007bff; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; margin: 5px; }
+        button:hover { background: #0056b3; }
+        button:disabled { background: #6c757d; cursor: not-allowed; }
+        .form-group { margin: 15px 0; }
+        label { display: block; margin-bottom: 5px; font-weight: bold; }
+        input, select { width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box; }
+        .metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin: 15px 0; }
+        .metric { background: #f8f9fa; padding: 10px; border-radius: 4px; text-align: center; }
+        .metric-value { font-size: 24px; font-weight: bold; color: #007bff; }
+        .metric-label { font-size: 12px; color: #666; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔧 Arduino Data Simulator</h1>
+        <p>This tool simulates Arduino sensor data and uploads it to your Supabase database for testing the dashboard.</p>
+        
+        <div id="status" class="status info">Ready to simulate Arduino data...</div>
+        
+        <div class="form-group">
+            <label for="deviceSelect">Device:</label>
+            <select id="deviceSelect">
+                <option value="AW-001">AW-001 - Air Quality Monitor</option>
+            </select>
+        </div>
+        
+        <div class="form-group">
+            <label for="interval">Upload Interval (seconds):</label>
+            <input type="number" id="interval" value="30" min="5" max="300">
+        </div>
+        
+        <div>
+            <button id="startBtn" onclick="startSimulation()">▶️ Start Simulation</button>
+            <button id="stopBtn" onclick="stopSimulation()" disabled>⏹️ Stop Simulation</button>
+            <button onclick="sendSingleReading()">📤 Send Single Reading</button>
+            <button onclick="clearDatabase()">🗑️ Clear Database</button>
+        </div>
+        
+        <div class="metrics">
+            <div class="metric">
+                <div class="metric-value" id="tempValue">--</div>
+                <div class="metric-label">Temperature (°C)</div>
+            </div>
+            <div class="metric">
+                <div class="metric-value" id="humValue">--</div>
+                <div class="metric-label">Humidity (%)</div>
+            </div>
+            <div class="metric">
+                <div class="metric-value" id="aqiValue">--</div>
+                <div class="metric-label">AQI</div>
+            </div>
+            <div class="metric">
+                <div class="metric-value" id="mq135Value">--</div>
+                <div class="metric-label">MQ135 Raw</div>
+            </div>
+        </div>
+        
+        <div id="log" style="background: #f8f9fa; padding: 10px; border-radius: 4px; height: 200px; overflow-y: auto; font-family: monospace; font-size: 12px; margin-top: 20px;"></div>
+    </div>
+
+    <script>
+        // Configuration
+        const SUPABASE_URL = 'https://hqptxgzpzuhsrybuyjoy.supabase.co';
+        const SUPABASE_KEY = 'sb_publishable_Vn85SyMOd3cToHzCliO5Jg_AX2BO_xY';
+        
+        let simulationInterval = null;
+        let readingCount = 0;
+        
+        // Simulate sensor readings
+        function generateSensorData() {
+            const temp = 25 + Math.random() * 15; // 25-40°C
+            const hum = 40 + Math.random() * 40;  // 40-80%
+            const mq135Raw = Math.floor(400 + Math.random() * 2000); // 400-2400
+            const aqiValue = Math.floor(map(mq135Raw, 0, 4095, 0, 500));
+            
+            let aqiCategory = 'Good';
+            if (mq135Raw > 1800) aqiCategory = 'Unhealthy';
+            else if (mq135Raw > 800) aqiCategory = 'Moderate';
+            
+            return {
+                temperature: temp.toFixed(2),
+                humidity: hum.toFixed(2),
+                mq135_raw: mq135Raw,
+                aqi_value: aqiValue,
+                aqi_category: aqiCategory
+            };
+        }
+        
+        // Map function (like Arduino)
+        function map(value, fromLow, fromHigh, toLow, toHigh) {
+            return (value - fromLow) * (toHigh - toLow) / (fromHigh - fromLow) + toLow;
+        }
+        
+        // Update UI with sensor data
+        function updateMetrics(data) {
+            document.getElementById('tempValue').textContent = data.temperature;
+            document.getElementById('humValue').textContent = data.humidity;
+            document.getElementById('aqiValue').textContent = data.aqi_value;
+            document.getElementById('mq135Value').textContent = data.mq135_raw;
+        }
+        
+        // Add log entry
+        function addLog(message, type = 'info') {
+            const log = document.getElementById('log');
+            const timestamp = new Date().toLocaleTimeString();
+            const entry = document.createElement('div');
+            entry.style.color = type === 'error' ? '#dc3545' : type === 'success' ? '#28a745' : '#6c757d';
+            entry.textContent = `[${timestamp}] ${message}`;
+            log.appendChild(entry);
+            log.scrollTop = log.scrollHeight;
+        }
+        
+        // Update status
+        function updateStatus(message, type = 'info') {
+            const status = document.getElementById('status');
+            status.textContent = message;
+            status.className = `status ${type}`;
+        }
+        
+        // Send data to Supabase
+        async function sendToSupabase(data) {
+            try {
+                const response = await fetch(`${SUPABASE_URL}/rest/v1/air_quality_readings`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'apikey': SUPABASE_KEY,
+                        'Authorization': `Bearer ${SUPABASE_KEY}`,
+                        'Prefer': 'return=minimal'
+                    },
+                    body: JSON.stringify(data)
+                });
+                
+                if (response.ok) {
+                    addLog(`✅ Data uploaded successfully (Reading #${++readingCount})`, 'success');
+                    return true;
+                } else {
+                    const error = await response.text();
+                    addLog(`❌ Upload failed: ${response.status} - ${error}`, 'error');
+                    return false;
+                }
+            } catch (error) {
+                addLog(`❌ Network error: ${error.message}`, 'error');
+                return false;
+            }
+        }
+        
+        // Send single reading
+        async function sendSingleReading() {
+            const deviceId = document.getElementById('deviceSelect').value;
+            const data = generateSensorData();
+            
+            updateMetrics(data);
+            addLog(`🔄 Generating reading for ${deviceId}...`);
+            
+            const success = await sendToSupabase(data);
+            if (success) {
+                updateStatus(`✅ Single reading sent for ${deviceId}`, 'success');
+            } else {
+                updateStatus('❌ Failed to send reading', 'error');
+            }
+        }
+        
+        // Start simulation
+        function startSimulation() {
+            const intervalSeconds = parseInt(document.getElementById('interval').value);
+            const deviceId = document.getElementById('deviceSelect').value;
+            
+            document.getElementById('startBtn').disabled = true;
+            document.getElementById('stopBtn').disabled = false;
+            document.getElementById('interval').disabled = true;
+            document.getElementById('deviceSelect').disabled = true;
+            
+            updateStatus(`🔄 Simulating ${deviceId} every ${intervalSeconds} seconds...`, 'info');
+            addLog(`🚀 Starting simulation for ${deviceId} (${intervalSeconds}s interval)`);
+            
+            // Send first reading immediately
+            sendSingleReading();
+            
+            // Set up interval
+            simulationInterval = setInterval(() => {
+                sendSingleReading();
+            }, intervalSeconds * 1000);
+        }
+        
+        // Stop simulation
+        function stopSimulation() {
+            if (simulationInterval) {
+                clearInterval(simulationInterval);
+                simulationInterval = null;
+            }
+            
+            document.getElementById('startBtn').disabled = false;
+            document.getElementById('stopBtn').disabled = true;
+            document.getElementById('interval').disabled = false;
+            document.getElementById('deviceSelect').disabled = false;
+            
+            updateStatus('⏹️ Simulation stopped', 'info');
+            addLog('⏹️ Simulation stopped');
+        }
+        
+        // Clear database
+        async function clearDatabase() {
+            if (!confirm('⚠️ This will delete ALL air quality readings from the database. Are you sure?')) {
+                return;
+            }
+            
+            try {
+                const response = await fetch(`${SUPABASE_URL}/rest/v1/air_quality_readings`, {
+                    method: 'DELETE',
+                    headers: {
+                        'apikey': SUPABASE_KEY,
+                        'Authorization': `Bearer ${SUPABASE_KEY}`
+                    }
+                });
+                
+                if (response.ok) {
+                    addLog('🗑️ Database cleared successfully', 'success');
+                    updateStatus('🗑️ Database cleared', 'success');
+                    readingCount = 0;
+                } else {
+                    addLog(`❌ Failed to clear database: ${response.status}`, 'error');
+                }
+            } catch (error) {
+                addLog(`❌ Error clearing database: ${error.message}`, 'error');
+            }
+        }
+        
+        // Initialize
+        addLog('🔧 Arduino Simulator initialized');
+        addLog('📊 Connected to Supabase database');
+    </script>
+</body>
+</html>
