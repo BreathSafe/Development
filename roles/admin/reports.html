@@ -3,9 +3,50 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Admin - Reports</title>
+  <title>AirWatch — Reports</title>
+  <link rel="stylesheet" href="admin.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Sora:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <script defer src="../../config.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <script defer src="admin.js"></script>
 </head>
-<body>
-  <script>window.location.replace('../../admin.html#section=reports');</script>
+<body data-page="reports">
+<div id="app">
+  <header class="topbar">
+    <div class="topbar-logo"><div class="logo-icon">🛡</div>AirWatch Admin</div>
+    <div class="topbar-right"><div class="live-dot" title="Live data"></div><span style="font-size:11px;color:var(--text3)">Live</span><div class="user-chip"><div class="avatar">A</div><span style="color:var(--text2)">Admin</span></div><button class="btn btn-ghost btn-sm" onclick="logout()">Logout</button></div>
+  </header>
+  <div class="main">
+    <nav class="sidebar">
+      <div class="nav-section">System</div>
+      <a class="nav-item" data-page="overview" href="overview.html"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg><span>Overview</span></a>
+      <div class="nav-section">Devices</div>
+      <a class="nav-item" data-page="devices" href="devices.html"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8m-4-4v4"/></svg><span>Device Management</span></a>
+      <a class="nav-item" data-page="alerts" href="alerts.html"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg><span>Alerts</span><span class="nav-badge" id="alert-nav-badge">0</span></a>
+      <a class="nav-item" data-page="reports" href="reports.html"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M7 14l4-4 3 3 5-5"/></svg><span>Reports</span></a>
+      <div class="nav-section">Users</div>
+      <a class="nav-item" data-page="users" href="users.html"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg><span>User Management</span></a>
+      <div class="nav-section">Settings</div>
+      <a class="nav-item" data-page="settings" href="settings.html"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg><span>System Settings</span></a>
+    </nav>
+    <div class="content">
+      <div class="panel-pad">
+        <div class="page-header"><div class="page-title">Analytics Reports</div><div class="page-sub">Threshold-based analytics and interpretation from recent readings</div></div>
+        <div class="metrics-grid" id="reports-metrics"></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;">
+          <div class="card"><div class="card-head"><span class="card-title">User Activity (Bar)</span></div><div class="card-body"><div style="height:240px;position:relative;"><canvas id="report-user-bar-chart"></canvas></div></div></div>
+          <div class="card"><div class="card-head"><span class="card-title">Alerts Generated Trend (Line)</span></div><div class="card-body"><div style="height:240px;position:relative;"><canvas id="report-alert-line-chart"></canvas></div></div></div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;">
+          <div class="card"><div class="card-head"><span class="card-title">SMS Status per User (Stacked)</span></div><div class="card-body"><div style="height:260px;position:relative;"><canvas id="report-sms-stacked-chart"></canvas></div></div></div>
+          <div class="card"><div class="card-head"><span class="card-title">AQI Band Share (Pie)</span></div><div class="card-body"><div style="height:260px;position:relative;"><canvas id="report-aqi-pie-chart"></canvas></div></div></div>
+        </div>
+        <div class="card"><div class="card-head"><span class="card-title">Interpretation</span><button class="btn btn-ghost btn-sm" onclick="loadReports()">Refresh</button></div><div class="card-body"><div id="report-interpretation" style="font-size:13px;color:var(--text2);line-height:1.6;">Loading interpretation...</div></div></div>
+        <div class="card"><div class="card-head"><span class="card-title">AQI Threshold Distribution</span><span style="font-size:11px;color:var(--text2);">Based on latest 100 readings</span></div><div class="card-body"><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Category</th><th>Range</th><th>Readings</th><th>Share</th><th>Interpretation</th></tr></thead><tbody id="report-threshold-body"><tr><td colspan="5" style="text-align:center;color:var(--text2);padding:20px;">Loading report...</td></tr></tbody></table></div></div></div>
+      </div>
+    </div>
+  </div>
+</div>
 </body>
 </html>
