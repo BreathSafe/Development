@@ -1182,60 +1182,66 @@ async function loadOverview() {
       console.log('ℹ️ No Arduino data available, showing default location');
     }
     
+    // Update current reading display in overview
+    const currentReadingEl = document.getElementById('overview-current-reading');
+    if (currentReadingEl) {
+      currentReadingEl.innerHTML = `
+        <div style="display:flex;align-items:center;gap:12px;">
+          <div style="text-align:center;">
+            <div style="font-size:28px;font-weight:700;color:${aqiColor(device.aqi)};font-family:var(--mono);">${device.aqi}</div>
+            <div style="font-size:10px;color:var(--text2);">AQI</div>
+          </div>
+          <div style="flex:1;">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:11px;">
+              <div>🌡 <strong>${device.temp}°C</strong></div>
+              <div>💧 <strong>${device.hum}%</strong></div>
+              <div>☁ <strong>${device.co2}ppm</strong></div>
+              <div>🔋 <strong>${device.battery}%</strong></div>
+            </div>
+            <div style="margin-top:6px;font-size:10px;color:var(--text3);">
+              Device: ${device.name}<br>
+              Status: <span style="color:var(--green)">${device.status}</span>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+    
+    // Update alerts in overview
+    const alerts = [];
+    if (device.aqi > 100) {
+      alerts.push({
+        type: 'danger',
+        msg: `Arduino ${device.id}: AQI ${device.aqi} exceeds safe threshold`,
+        time: device.lastSeen
+      });
+    } else if (device.aqi > 50) {
+      alerts.push({
+        type: 'warn',
+        msg: `Arduino ${device.id}: Moderate air quality (AQI: ${device.aqi})`,
+        time: device.lastSeen
+      });
+    }
+    
+    if (alerts.length === 0) {
+      alerts.push({
+        type: 'success',
+        msg: `Arduino ${device.id}: All systems normal`,
+        time: device.lastSeen
+      });
+    }
+    
+    const alertsEl = document.getElementById('overview-alerts');
+    if (alertsEl) {
+      alertsEl.innerHTML = alerts.map(a=>`
+        <div class="alert-item alert-${a.type}">
+          <span>${a.msg}</span><span class="alert-time">${a.time}</span>
+        </div>`).join('');
+    }
+    
   }, 100); // End of setTimeout
   
-  // Update current reading display in overview
-  document.getElementById('overview-current-reading').innerHTML = `
-    <div style="display:flex;align-items:center;gap:12px;">
-      <div style="text-align:center;">
-        <div style="font-size:28px;font-weight:700;color:${aqiColor(device.aqi)};font-family:var(--mono);">${device.aqi}</div>
-        <div style="font-size:10px;color:var(--text2);">AQI</div>
-      </div>
-      <div style="flex:1;">
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:11px;">
-          <div>🌡 <strong>${device.temp}°C</strong></div>
-          <div>💧 <strong>${device.hum}%</strong></div>
-          <div>☁ <strong>${device.co2}ppm</strong></div>
-          <div>🔋 <strong>${device.battery}%</strong></div>
-        </div>
-        <div style="margin-top:6px;font-size:10px;color:var(--text3);">
-          Device: ${device.name}<br>
-          Status: <span style="color:var(--green)">${device.status}</span>
-        </div>
-      </div>
-    </div>
-  `;
-  
-  // Update alerts in overview
-  const alerts = [];
-  if (device.aqi > 100) {
-    alerts.push({
-      type: 'danger',
-      msg: `Arduino ${device.id}: AQI ${device.aqi} exceeds safe threshold`,
-      time: device.lastSeen
-    });
-  } else if (device.aqi > 50) {
-    alerts.push({
-      type: 'warn',
-      msg: `Arduino ${device.id}: Moderate air quality (AQI: ${device.aqi})`,
-      time: device.lastSeen
-    });
-  }
-  
-  if (alerts.length === 0) {
-    alerts.push({
-      type: 'success',
-      msg: `Arduino ${device.id}: All systems normal`,
-      time: device.lastSeen
-    });
-  }
-  
-  document.getElementById('overview-alerts').innerHTML = alerts.map(a=>`
-    <div class="alert-item alert-${a.type}">
-      <span>${a.msg}</span><span class="alert-time">${a.time}</span>
-    </div>`).join('');
-  
-  // Load and display complete Arduino readings table
+  // Load and display complete Arduino readings table (outside setTimeout)
   await loadArduinoReadingsTable();
   
   // Update metrics with real Arduino data
