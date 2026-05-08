@@ -1570,6 +1570,16 @@ function showSection(section, element) {
   if (section === 'users') loadUsers();
 }
 
+function applySectionFromHash() {
+  const raw = window.location.hash || '';
+  const match = raw.match(/section=([a-zA-Z0-9_-]+)/);
+  const section = match ? match[1] : 'overview';
+  const target = document.querySelector(`.nav-item[onclick*="showSection('${section}'"]`);
+  if (target) {
+    showSection(section, target);
+  }
+}
+
 // ═══════════════════════════════════════════
 // OVERVIEW FUNCTIONS
 // ═══════════════════════════════════════════
@@ -3202,7 +3212,7 @@ function showSettings() {
 
 function logout() {
   if (confirm('Are you sure you want to logout?')) {
-    window.location.href = 'index.html';
+    window.location.href = 'roles/public/index.html';
   }
 }
 
@@ -3267,6 +3277,8 @@ async function checkAndTriggerSMSNotifications(currentAQI) {
 async function initializeAdmin() {
   trackUserStat(activeSessionUserId, 'logins', 1);
   await loadOverview();
+  applySectionFromHash();
+  window.addEventListener('hashchange', applySectionFromHash);
   
   // Set up real-time data refresh every 30 seconds
   setInterval(async () => {
