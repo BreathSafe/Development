@@ -217,14 +217,26 @@ html, body { height: 100%; overflow: hidden; font-family: var(--font); backgroun
 </div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="config.js"></script>
 <script>
 // ═══════════════════════════════════════════
 // SUPABASE DATABASE CONNECTION
 // ═══════════════════════════════════════════
-const SUPABASE_CONFIG = {
+const DB_CONFIG = window.CONFIG?.database || {
   url: 'https://hqptxgzpzuhsrybuyjoy.supabase.co',
   anonKey: 'sb_publishable_Vn85SyMOd3cToHzCliO5Jg_AX2BO_xY',
-  table: 'air_quality_readings'
+  table: 'air_quality_readings',
+  refreshInterval: 30000,
+  fetchLimit: 10
+};
+
+const DB_TABLES = window.CONFIG?.tables || {
+  readings: 'air_quality_readings',
+  devices: 'devices',
+  notificationUsers: 'notification_users',
+  smsNotifications: 'sms_notifications',
+  systemUsers: 'system_users',
+  hourlyStats: 'hourly_stats'
 };
 
 // Database connection module
@@ -232,11 +244,11 @@ const Database = {
   async fetchLatestReadings(limit = 10) {
     try {
       const response = await fetch(
-        `${SUPABASE_CONFIG.url}/rest/v1/${SUPABASE_CONFIG.table}?order=created_at.desc&limit=${limit}`,
+        `${DB_CONFIG.url}/rest/v1/${DB_TABLES.readings}?order=created_at.desc&limit=${limit}`,
         {
           headers: {
-            'apikey': SUPABASE_CONFIG.anonKey,
-            'Authorization': `Bearer ${SUPABASE_CONFIG.anonKey}`
+            'apikey': DB_CONFIG.anonKey,
+            'Authorization': `Bearer ${DB_CONFIG.anonKey}`
           }
         }
       );
