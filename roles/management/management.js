@@ -747,8 +747,13 @@ function markAlertsAsRead() {
 
 function logout() {
   showConfirmModal('Logout', 'Are you sure you want to end your session?', () => {
+    try {
+      localStorage.removeItem('breathsafe_user');
+    } catch (e) {
+      // ignore storage errors
+    }
     window.location.href = '../../index.html';
-  }, 'info');
+  }, 'danger');
 }
 
 async function initializeManagement() {

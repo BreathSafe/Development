@@ -1011,7 +1011,7 @@ async function loadOverview() {
       {label:'Temperature',val:currentDevice.temp,unit:'°C',color:'var(--orange)'},
       {label:'Humidity',val:currentDevice.hum,unit:'%',color:'var(--teal)'},
       {label:'CO₂ Level',val:currentDevice.co2,unit:'ppm',color:'var(--accent)'},
-      {label:'Total Readings',val:totalReadings,unit:'',color:'var(--purple)'},
+      {label:'Total Readings',val:(stats && stats.totalReadings !== null ? stats.totalReadings : '--'),unit:'',color:'var(--purple)'},
       {label:'Device Status',val:currentDevice.status,unit:'',color:currentDevice.status === 'online' ? 'var(--green)' : 'var(--red)'}
     ].map(m => `<div class="metric-card"><div class="mc-label">${m.label}</div><div class="mc-value" style="color:${m.color}">${m.val}<span class="mc-unit">${m.unit}</span></div></div>`).join('');
   }
@@ -2604,9 +2604,12 @@ function clearDatabase() {
 }
 
 function logout() {
-  if (confirm('Are you sure you want to logout?')) {
+  showConfirmModal('Logout', 'Are you sure you want to end your session?', () => {
+    try {
+      localStorage.removeItem('breathsafe_user');
+    } catch (e) {}
     window.location.href = '../../index.html';
-  }
+  }, 'danger');
 }
 
 async function checkAndTriggerSMSNotifications(currentAQI) {
