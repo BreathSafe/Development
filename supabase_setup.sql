@@ -1,4 +1,4 @@
--- ============================================================
+﻿-- ============================================================
 --  SUPABASE DATABASE SETUP — Air Quality Monitor
 --  Run this in: Supabase Dashboard → SQL Editor → New Query
 -- ============================================================
@@ -174,7 +174,7 @@ ALTER TABLE devices ADD COLUMN IF NOT EXISTS name TEXT NOT NULL DEFAULT 'Unnamed
 
 -- 17. Insert default device
 INSERT INTO devices (device_id, name, location, latitude, longitude)
-VALUES ('AW-001', 'AirWatch Main Station', 'Your Location', 8.4542, 124.6319)
+VALUES ('AW-001', 'BreathSafe Main Station', 'Your Location', 8.4542, 124.6319)
 ON CONFLICT (device_id) DO NOTHING;
 
 -- 17. System users table for admin dashboard login

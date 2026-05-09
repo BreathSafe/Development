@@ -76,6 +76,25 @@ const Database = {
       console.error('Error fetching devices:', error);
       return [];
     }
+  },
+  async getLatestDeviceLocation(deviceId) {
+    try {
+      const response = await fetch(
+        `${DB_CONFIG.url}/rest/v1/${DB_TABLES.readings}?device_id=eq.${deviceId}&order=created_at.desc&limit=1`,
+        {
+          headers: {
+            'apikey': DB_CONFIG.anonKey,
+            'Authorization': `Bearer ${DB_CONFIG.anonKey}`
+          }
+        }
+      );
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const data = await response.json();
+      return data && data.length > 0 ? data[0] : null;
+    } catch (error) {
+      console.error('Error fetching latest device location:', error);
+      return null;
+    }
   }
 };
 
@@ -88,6 +107,8 @@ let alertLog = [
 ];
 let maps = {};
 let markers = {};
+let modalMap = null;
+let modalMarker = null;
 
 function aqiColor(aqi) {
   if (aqi <= 50) return '#22c55e';
@@ -421,14 +442,99 @@ function updateAlertBadges() {
 }
 
 function showModal(modalId) {
-  document.getElementById(modalId).classList.add('open');
+  const modal = document.getElementById(modalId);
+  if (modal) {
+    modal.classList.add('open');
+    if (modalId === 'device-modal') {
+      setTimeout(initModalMap, 200);
+    }
+  }
+}
+
+function initModalMap() {
+  const mapContainer = document.getElementById('modal-map');
+  if (!mapContainer) return;
+
+  const lat = parseFloat(document.getElementById('device-lat').value) || 8.4542;
+  const lng = parseFloat(document.getElementById('device-lng').value) || 124.6319;
+
+  if (!modalMap) {
+    modalMap = L.map('modal-map').setView([lat, lng], 13);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '© OpenStreetMap'
+    }).addTo(modalMap);
+
+    modalMap.on('click', (e) => {
+      const { lat, lng } = e.latlng;
+      updateModalMap(lat, lng);
+    });
+  } else {
+    modalMap.setView([lat, lng], 13);
+    modalMap.invalidateSize();
+  }
+
+  updateModalMap(lat, lng);
+}
+
+function updateModalMap(lat, lng) {
+  document.getElementById('device-lat').value = lat.toFixed(6);
+  document.getElementById('device-lng').value = lng.toFixed(6);
+
+  if (!modalMarker) {
+    modalMarker = L.marker([lat, lng], { draggable: true }).addTo(modalMap);
+    modalMarker.on('dragend', (e) => {
+      const pos = e.target.getLatLng();
+      updateModalMap(pos.lat, pos.lng);
+    });
+  } else {
+    modalMarker.setLatLng([lat, lng]);
+  }
+  
+  if (modalMap) modalMap.panTo([lat, lng]);
+}
+
+async function detectLocation() {
+  const deviceId = document.getElementById('device-id')?.value.trim();
+  if (!deviceId) {
+    alert('Please enter a Device ID first (e.g., AW-001) to fetch its GPS location.');
+    return;
+  }
+
+  const btn = document.querySelector('[onclick="detectLocation()"]');
+  const originalText = btn.innerHTML;
+  btn.innerHTML = '⌛ Syncing with GPS...';
+  btn.disabled = true;
+
+  try {
+    const latestReading = await Database.getLatestDeviceLocation(deviceId);
+    
+    if (latestReading && latestReading.latitude && latestReading.longitude) {
+      const lat = parseFloat(latestReading.latitude);
+      const lng = parseFloat(latestReading.longitude);
+      
+      updateModalMap(lat, lng);
+      // We don't have toast in management, so just success notification
+    } else {
+      throw new Error(`No GPS data found for device <strong>${deviceId}</strong>. Ensure the hardware is online and has a GPS fix.`);
+    }
+  } catch (error) {
+    console.error('GPS Sync Error:', error);
+    const errorMsgEl = document.getElementById('sync-error-msg');
+    if (errorMsgEl) errorMsgEl.innerHTML = error.message;
+    showModal('sync-error-modal');
+  } finally {
+    btn.innerHTML = originalText;
+    btn.disabled = false;
+  }
 }
 
 function closeModal(modalId) {
-  document.getElementById(modalId).classList.remove('open');
+  document.getElementById(modalId)?.classList.remove('open');
 }
 
 function showAddDeviceModal() {
+  document.getElementById('device-lat').value = '8.4542';
+  document.getElementById('device-lng').value = '124.6319';
   showModal('device-modal');
 }
 

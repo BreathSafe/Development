@@ -62,13 +62,28 @@ const int AQI_GOOD_MAX     = 800;   // 0–800   → Good
 const int AQI_MODERATE_MAX = 1800;  // 801–1800→ Moderate
                                     // >1800   → Unhealthy
 
+// ── Device Identification ────────────────────────────────
+const char* DEVICE_ID = "AW-001";
+
+// ── GPS Configuration (TinyGPS++ & SoftwareSerial) ────────
+#include <TinyGPS++.h>
+#include <SoftwareSerial.h>
+
+#define GPS_RX_PIN 16  // Connect to GPS TX
+#define GPS_TX_PIN 17  // Connect to GPS RX
+TinyGPSPlus gps;
+SoftwareSerial gpsSerial(GPS_RX_PIN, GPS_TX_PIN);
+
+float latitude  = 8.4542;   // Default/Fallback
+float longitude = 124.6319; // Default/Fallback
+
 // ── Globals ───────────────────────────────────────────────
 DHT dht(DHT_PIN, DHT_TYPE);
 
 float temperature   = 0;
 float humidity      = 0;
 int   mq135Raw      = 0;
-int   aqiValue      = 0;      // mapped 0–500 (simplified AQI)
+int   aqiValue      = 0;      
 String aqiCategory  = "Good";
 
 unsigned long lastRead   = 0;
@@ -77,6 +92,7 @@ unsigned long lastUpload = 0;
 // ─────────────────────────────────────────────────────────
 void setup() {
   Serial.begin(115200);
+  gpsSerial.begin(9600); // Most GPS modules default to 9600 baud
 
   // LED pins
   pinMode(LED_GREEN,  OUTPUT);
@@ -110,6 +126,16 @@ void setup() {
 // ─────────────────────────────────────────────────────────
 void loop() {
   unsigned long now = millis();
+
+  // Read GPS data constantly
+  while (gpsSerial.available() > 0) {
+    if (gps.encode(gpsSerial.read())) {
+      if (gps.location.isValid()) {
+        latitude  = gps.location.lat();
+        longitude = gps.location.lng();
+      }
+    }
+  }
 
   // ── Read sensors every READ_INTERVAL ──────────────────
   if (now - lastRead >= READ_INTERVAL) {
@@ -183,6 +209,7 @@ void updateLEDs() {
 // ─────────────────────────────────────────────────────────
 void printSerial() {
   Serial.println("─────────────────────────────");
+  Serial.printf("📍  Location    : %.6f, %.6f\n", latitude, longitude);
   Serial.printf("🌡  Temperature : %.1f °C\n",  temperature);
   Serial.printf("💧  Humidity    : %.1f %%\n",  humidity);
   Serial.printf("🌫  MQ135 Raw   : %d\n",        mq135Raw);
@@ -203,7 +230,10 @@ void uploadToSupabase() {
   http.addHeader("Prefer",        "return=minimal");
 
   // Build JSON payload
-  StaticJsonDocument<256> doc;
+  StaticJsonDocument<512> doc;
+  doc["device_id"]     = DEVICE_ID;
+  doc["latitude"]      = latitude;
+  doc["longitude"]     = longitude;
   doc["temperature"]   = temperature;
   doc["humidity"]      = humidity;
   doc["mq135_raw"]     = mq135Raw;

@@ -254,12 +254,16 @@ const Database = {
           headers: {
             'apikey': DB_CONFIG.anonKey,
             'Authorization': `Bearer ${DB_CONFIG.anonKey}`,
-            'Content-Type': 'application/json'
+            'Content-Type': 'application/json',
+            'Prefer': 'return=representation'
           },
           body: JSON.stringify(userData)
         }
       );
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.message || `HTTP ${response.status}`);
+      }
       return await response.json();
     } catch (error) {
       console.error('Error creating system user:', error);
@@ -267,10 +271,10 @@ const Database = {
     }
   },
 
-  async updateSystemUser(userId, userData) {
+  async updateSystemUser(user_id, userData) {
     try {
       const response = await fetch(
-        `${DB_CONFIG.url}/rest/v1/${DB_TABLES.systemUsers}?id=eq.${userId}`,
+        `${DB_CONFIG.url}/rest/v1/${DB_TABLES.systemUsers}?user_id=eq.${user_id}`,
         {
           method: 'PATCH',
           headers: {
@@ -282,17 +286,21 @@ const Database = {
           body: JSON.stringify(userData)
         }
       );
-      return response.ok;
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.message || `HTTP ${response.status}`);
+      }
+      return true;
     } catch (error) {
       console.error('Error updating system user:', error);
-      return false;
+      throw error;
     }
   },
 
-  async deleteSystemUser(userId) {
+  async deleteSystemUser(user_id) {
     try {
       const response = await fetch(
-        `${DB_CONFIG.url}/rest/v1/${DB_TABLES.systemUsers}?id=eq.${userId}`,
+        `${DB_CONFIG.url}/rest/v1/${DB_TABLES.systemUsers}?user_id=eq.${user_id}`,
         {
           method: 'DELETE',
           headers: {
@@ -336,12 +344,16 @@ const Database = {
           headers: {
             'apikey': DB_CONFIG.anonKey,
             'Authorization': `Bearer ${DB_CONFIG.anonKey}`,
-            'Content-Type': 'application/json'
+            'Content-Type': 'application/json',
+            'Prefer': 'return=representation'
           },
           body: JSON.stringify(deviceData)
         }
       );
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.message || `HTTP ${response.status}`);
+      }
       return await response.json();
     } catch (error) {
       console.error('Error creating device:', error);
@@ -349,10 +361,10 @@ const Database = {
     }
   },
 
-  async updateDevice(deviceId, deviceData) {
+  async updateDevice(device_id, deviceData) {
     try {
       const response = await fetch(
-        `${DB_CONFIG.url}/rest/v1/${DB_TABLES.devices}?id=eq.${deviceId}`,
+        `${DB_CONFIG.url}/rest/v1/${DB_TABLES.devices}?device_id=eq.${device_id}`,
         {
           method: 'PATCH',
           headers: {
@@ -364,17 +376,41 @@ const Database = {
           body: JSON.stringify(deviceData)
         }
       );
-      return response.ok;
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.message || `HTTP ${response.status}`);
+      }
+      return true;
     } catch (error) {
       console.error('Error updating device:', error);
-      return false;
+      throw error;
     }
   },
 
-  async deleteDevice(deviceId) {
+  async getDevice(device_id) {
     try {
       const response = await fetch(
-        `${DB_CONFIG.url}/rest/v1/${DB_TABLES.devices}?id=eq.${deviceId}`,
+        `${DB_CONFIG.url}/rest/v1/${DB_TABLES.devices}?device_id=eq.${device_id}`,
+        {
+          headers: {
+            'apikey': DB_CONFIG.anonKey,
+            'Authorization': `Bearer ${DB_CONFIG.anonKey}`
+          }
+        }
+      );
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const data = await response.json();
+      return data.length > 0 ? data[0] : null;
+    } catch (error) {
+      console.error('Error fetching device:', error);
+      return null;
+    }
+  },
+
+  async deleteDevice(device_id) {
+    try {
+      const response = await fetch(
+        `${DB_CONFIG.url}/rest/v1/${DB_TABLES.devices}?device_id=eq.${device_id}`,
         {
           method: 'DELETE',
           headers: {
@@ -387,6 +423,26 @@ const Database = {
     } catch (error) {
       console.error('Error deleting device:', error);
       return false;
+    }
+  },
+
+  async getLatestDeviceLocation(deviceId) {
+    try {
+      const response = await fetch(
+        `${DB_CONFIG.url}/rest/v1/${DB_TABLES.readings}?device_id=eq.${deviceId}&order=created_at.desc&limit=1`,
+        {
+          headers: {
+            'apikey': DB_CONFIG.anonKey,
+            'Authorization': `Bearer ${DB_CONFIG.anonKey}`
+          }
+        }
+      );
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const data = await response.json();
+      return data && data.length > 0 ? data[0] : null;
+    } catch (error) {
+      console.error('Error fetching latest device location:', error);
+      return null;
     }
   }
 };
@@ -602,13 +658,16 @@ let adminMarkers = {};
 let lastToastAlertLevel = null;
 let devicesPageMap = null;
 let devicesPageMarkers = [];
-let currentDetailDeviceId = null;
+let currentEditingUserId = null;
+let currentEditingDeviceId = null;
 let aqiChartInstance = null;
 let envChartInstance = null;
 let reportUserBarChart = null;
 let reportAlertLineChart = null;
 let reportSmsStackedChart = null;
 let reportAqiPieChart = null;
+let modalMap = null;
+let modalMarker = null;
 
 function setActiveNav(page) {
   document.querySelectorAll('.nav-item').forEach(item => {
@@ -1417,7 +1476,7 @@ async function deleteSMSUser(userId) {
 }
 
 async function testSMSToUser(phoneNumber) {
-  const testMessage = `AirWatch Test: This is a test SMS from your AirWatch system. AQI monitoring is active. Reply STOP to unsubscribe.`;
+  const testMessage = `BreathSafe Test: This is a test SMS from your BreathSafe system. AQI monitoring is active. Reply STOP to unsubscribe.`;
   try {
     await Database.logSMSNotification({ phone_number: phoneNumber, message: testMessage, aqi_value: null, status: 'sent' });
     console.log('📤 Test SMS sent to:', phoneNumber);
@@ -1517,7 +1576,91 @@ function confirmClearAlerts() {
 }
 
 function showModal(modalId) {
-  document.getElementById(modalId)?.classList.add('open');
+  const modal = document.getElementById(modalId);
+  if (modal) {
+    modal.classList.add('open');
+    if (modalId === 'device-modal') {
+      // Delay map initialization slightly to ensure modal is visible
+      setTimeout(initModalMap, 200);
+    }
+  }
+}
+
+function initModalMap() {
+  const mapContainer = document.getElementById('modal-map');
+  if (!mapContainer) return;
+
+  const lat = parseFloat(document.getElementById('device-lat').value) || 8.4542;
+  const lng = parseFloat(document.getElementById('device-lng').value) || 124.6319;
+
+  if (!modalMap) {
+    modalMap = L.map('modal-map').setView([lat, lng], 13);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '© OpenStreetMap'
+    }).addTo(modalMap);
+
+    modalMap.on('click', (e) => {
+      const { lat, lng } = e.latlng;
+      updateModalMap(lat, lng);
+    });
+  } else {
+    modalMap.setView([lat, lng], 13);
+    modalMap.invalidateSize();
+  }
+
+  updateModalMap(lat, lng);
+}
+
+function updateModalMap(lat, lng) {
+  document.getElementById('device-lat').value = lat.toFixed(6);
+  document.getElementById('device-lng').value = lng.toFixed(6);
+
+  if (!modalMarker) {
+    modalMarker = L.marker([lat, lng], { draggable: true }).addTo(modalMap);
+    modalMarker.on('dragend', (e) => {
+      const pos = e.target.getLatLng();
+      updateModalMap(pos.lat, pos.lng);
+    });
+  } else {
+    modalMarker.setLatLng([lat, lng]);
+  }
+  
+  if (modalMap) modalMap.panTo([lat, lng]);
+}
+
+async function detectLocation() {
+  const deviceId = document.getElementById('device-id')?.value.trim();
+  if (!deviceId) {
+    alert('Please enter a Device ID first (e.g., AW-001) to fetch its GPS location.');
+    return;
+  }
+
+  const btn = document.querySelector('[onclick="detectLocation()"]');
+  const originalText = btn.innerHTML;
+  btn.innerHTML = '⌛ Syncing with GPS...';
+  btn.disabled = true;
+
+  try {
+    const latestReading = await Database.getLatestDeviceLocation(deviceId);
+    
+    if (latestReading && latestReading.latitude && latestReading.longitude) {
+      const lat = parseFloat(latestReading.latitude);
+      const lng = parseFloat(latestReading.longitude);
+      
+      updateModalMap(lat, lng);
+      showDashboardToast('success', 'GPS Sync Successful', `Location retrieved from Device ${deviceId}: ${lat.toFixed(4)}, ${lng.toFixed(4)}`);
+    } else {
+      throw new Error(`No GPS data found for device <strong>${deviceId}</strong> in the database. Ensure the device is powered on and has a GPS fix.`);
+    }
+  } catch (error) {
+    console.error('GPS Sync Error:', error);
+    const errorMsgEl = document.getElementById('sync-error-msg');
+    if (errorMsgEl) errorMsgEl.innerHTML = error.message;
+    showModal('sync-error-modal');
+  } finally {
+    btn.innerHTML = originalText;
+    btn.disabled = false;
+  }
 }
 
 function closeModal(modalId) {
@@ -1525,10 +1668,31 @@ function closeModal(modalId) {
 }
 
 function showAddUserModal() {
+  currentEditingUserId = null;
+  const modal = document.getElementById('user-modal');
+  if (modal) {
+    modal.querySelector('.modal-title').textContent = 'Add User';
+    modal.querySelector('.btn-primary').textContent = 'Create User';
+  }
+  document.getElementById('user-name').value = '';
+  document.getElementById('user-email').value = '';
+  document.getElementById('user-dept').value = '';
+  if (document.getElementById('user-phone')) document.getElementById('user-phone').value = '';
   showModal('user-modal');
 }
 
 function showAddDeviceModal() {
+  currentEditingDeviceId = null;
+  const modal = document.getElementById('device-modal');
+  if (modal) {
+    modal.querySelector('.modal-title').textContent = 'Add Device';
+    modal.querySelector('.btn-primary').textContent = 'Add Device';
+  }
+  document.getElementById('device-name').value = '';
+  document.getElementById('device-id').value = '';
+  document.getElementById('device-location').value = '';
+  document.getElementById('device-lat').value = '8.4542';
+  document.getElementById('device-lng').value = '124.6319';
   showModal('device-modal');
 }
 
@@ -1539,9 +1703,9 @@ async function saveUser() {
   const dept = document.getElementById('user-dept')?.value;
   const phone = document.getElementById('user-phone')?.value || '';
   if (!name || !email) { alert('Please fill in all required fields'); return; }
+  
   try {
     const userData = {
-      user_id: `USR-${String(users.length + 1).padStart(3, '0')}`,
       name,
       email,
       role,
@@ -1549,20 +1713,28 @@ async function saveUser() {
       status: 'active',
       phone_number: phone
     };
-    await Database.createSystemUser(userData);
-    systemActivity.unshift({ type: 'success', msg: `New user added to database: ${name}`, time: 'Just now' });
-    logRoleActivity('admin', 'success', `Added user ${name} (${role})`);
+
+    if (currentEditingUserId) {
+      // UPDATE EXISTING
+      await Database.updateSystemUser(currentEditingUserId, userData);
+      systemActivity.unshift({ type: 'info', msg: `User updated: ${name}`, time: 'Just now' });
+      logRoleActivity('admin', 'info', `Updated user ${currentEditingUserId}`);
+      alert('✅ User updated successfully!');
+    } else {
+      // CREATE NEW
+      userData.user_id = `USR-${String(Date.now()).slice(-3)}${Math.floor(Math.random() * 10)}`; 
+      await Database.createSystemUser(userData);
+      systemActivity.unshift({ type: 'success', msg: `New user added: ${name}`, time: 'Just now' });
+      logRoleActivity('admin', 'success', `Added user ${name} (${role})`);
+      alert('✅ User created successfully!');
+    }
+
     closeModal('user-modal');
     await loadUsers();
     loadOverview();
-    document.getElementById('user-name').value = '';
-    document.getElementById('user-email').value = '';
-    document.getElementById('user-dept').value = '';
-    if (document.getElementById('user-phone')) document.getElementById('user-phone').value = '';
-    alert('✅ User created successfully in database!');
   } catch (error) {
-    console.error('Error creating user:', error);
-    alert('❌ Error creating user: ' + error.message);
+    console.error('Error saving user:', error);
+    alert('❌ Error: ' + error.message);
   }
 }
 
@@ -1572,26 +1744,32 @@ async function saveDevice() {
   const location = document.getElementById('device-location')?.value;
   const lat = parseFloat(document.getElementById('device-lat')?.value) || 8.4542;
   const lng = parseFloat(document.getElementById('device-lng')?.value) || 124.6319;
+  
   if (!name || !id || !location) { alert('Please fill in all required fields'); return; }
+  
   try {
     const deviceData = { device_id: id, name, location, latitude: lat, longitude: lng, status: 'active' };
-    await Database.createDevice(deviceData);
-    const newDevice = { id, name, location, lat, lng, status: 'online', aqi: 0, temp: 0, hum: 0, battery: 100, lastSeen: 'Never' };
-    devices.push(newDevice);
-    systemActivity.unshift({ type: 'success', msg: `New device added to database: ${name}`, time: 'Just now' });
-    logRoleActivity('admin', 'success', `Registered device ${id} at ${location}`);
+    
+    if (currentEditingDeviceId) {
+      // UPDATE EXISTING
+      await Database.updateDevice(currentEditingDeviceId, deviceData);
+      systemActivity.unshift({ type: 'info', msg: `Device updated: ${id}`, time: 'Just now' });
+      logRoleActivity('admin', 'info', `Updated device config for ${id}`);
+      alert('✅ Device updated successfully!');
+    } else {
+      // CREATE NEW
+      await Database.createDevice(deviceData);
+      systemActivity.unshift({ type: 'success', msg: `New device registered: ${id}`, time: 'Just now' });
+      logRoleActivity('admin', 'success', `Registered device ${id} at ${location}`);
+      alert('✅ Device registered successfully!');
+    }
+
     closeModal('device-modal');
     await loadDevices();
     loadOverview();
-    document.getElementById('device-name').value = '';
-    document.getElementById('device-id').value = '';
-    document.getElementById('device-location').value = '';
-    document.getElementById('device-lat').value = '';
-    document.getElementById('device-lng').value = '';
-    alert('✅ Device created successfully in database!');
   } catch (error) {
-    console.error('Error creating device:', error);
-    alert('❌ Error creating device: ' + error.message);
+    console.error('Error saving device:', error);
+    alert('❌ Error: ' + error.message);
   }
 }
 
@@ -1616,17 +1794,7 @@ function saveThresholds() {
   loadOverview();
 }
 
-function editDevice(id) {
-  const device = devices.find(d => d.id === id);
-  if (device) {
-    document.getElementById('device-name').value = device.name;
-    document.getElementById('device-id').value = device.id;
-    document.getElementById('device-location').value = device.location;
-    document.getElementById('device-lat').value = device.lat;
-    document.getElementById('device-lng').value = device.lng;
-    showModal('device-modal');
-  }
-}
+
 
 async function deleteDevice(deviceId) {
   if (!confirm('Are you sure you want to delete this device?')) return;
@@ -1652,11 +1820,44 @@ async function deleteDevice(deviceId) {
 function editUser(id) {
   const user = users.find(u => u.id === id);
   if (user) {
+    currentEditingUserId = id;
+    const modal = document.getElementById('user-modal');
+    if (modal) {
+      modal.querySelector('.modal-title').textContent = 'Edit User: ' + id;
+      modal.querySelector('.btn-primary').textContent = 'Update User';
+    }
     document.getElementById('user-name').value = user.name;
     document.getElementById('user-email').value = user.email;
     document.getElementById('user-role').value = user.role;
     document.getElementById('user-dept').value = user.dept;
+    if (document.getElementById('user-phone')) document.getElementById('user-phone').value = user.phone || '';
     showModal('user-modal');
+  }
+}
+
+function editDevice(id) {
+  const device = devices.find(d => d.id === id);
+  if (device) {
+    currentEditingDeviceId = id;
+    const modal = document.getElementById('device-modal');
+    if (modal) {
+      modal.querySelector('.modal-title').textContent = 'Edit Device: ' + id;
+      modal.querySelector('.btn-primary').textContent = 'Update Device';
+    }
+    document.getElementById('device-name').value = device.name;
+    document.getElementById('device-id').value = device.id;
+    document.getElementById('device-location').value = device.location;
+    document.getElementById('device-lat').value = device.lat;
+    document.getElementById('device-lng').value = device.lng;
+    showModal('device-modal');
+  }
+}
+
+function editDeviceFromDetail() {
+  const deviceId = document.getElementById('dv-id')?.textContent;
+  if (deviceId) {
+    closeModal('device-detail-modal');
+    editDevice(deviceId);
   }
 }
 
