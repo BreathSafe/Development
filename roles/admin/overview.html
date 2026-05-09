@@ -1,10 +1,11 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>BreathSafe — Admin Overview</title>
   <link rel="stylesheet" href="admin.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Sora:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   <script defer src="../../config.js"></script>
@@ -98,23 +99,30 @@
               <div class="card-body"><div id="overview-current-reading"></div></div>
             </div>
             <div class="card">
-              <div class="card-head"><span class="card-title">Recent Alerts</span></div>
+              <div class="card-head" style="display: flex; justify-content: space-between; align-items: center;">
+                <span class="card-title">Recent Alerts</span>
+                <button class="btn btn-ghost btn-sm" onclick="showMarkReadModal()" style="font-size: 10px; padding: 2px 8px;">✔️ Mark Read</button>
+              </div>
               <div class="card-body"><div class="alert-feed" id="overview-alerts"></div></div>
             </div>
           </div>
         </div>
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 16px;">
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; margin-top: 16px;">
           <div class="card">
             <div class="card-head"><span class="card-title">📈 AQI Trend</span><span style="font-size:11px;color:var(--text2);">Last 20 readings</span></div>
             <div class="card-body"><div style="height:200px;position:relative;"><canvas id="overview-aqi-chart"></canvas></div></div>
           </div>
           <div class="card">
-            <div class="card-head"><span class="card-title">🌡️ Temperature & Humidity</span><span style="font-size:11px;color:var(--text2);">Last 20 readings</span></div>
+            <div class="card-head"><span class="card-title">🧪 Pollutant Breakdown</span><span style="font-size:11px;color:var(--text2);">CO₂, NH₃, Benzene (PPM)</span></div>
+            <div class="card-body"><div style="height:200px;position:relative;"><canvas id="overview-pollutant-chart"></canvas></div></div>
+          </div>
+          <div class="card">
+            <div class="card-head"><span class="card-title">🌡️ Env. Parameters</span><span style="font-size:11px;color:var(--text2);">Temp (°C) & Humidity (%)</span></div>
             <div class="card-body"><div style="height:200px;position:relative;"><canvas id="overview-env-chart"></canvas></div></div>
           </div>
         </div>
         <div class="card" style="margin-top: 16px;">
-          <div class="card-head"><span class="card-title">📊 Complete Arduino Readings History</span><span style="font-size: 11px; color: var(--text2);">Last 20 readings from database</span></div>
+          <div class="card-head"><span class="card-title">📊 Arduino Readings History</span><span style="font-size: 11px; color: var(--text2);">Recent 10 records from database</span></div>
           <div class="card-body">
             <div class="tbl-wrap">
               <table class="tbl" id="arduino-readings-table">
@@ -134,10 +142,6 @@
                   <tr><td colspan="8" style="text-align:center;color:var(--text2);padding:20px;">Loading Arduino readings...</td></tr>
                 </tbody>
               </table>
-            </div>
-            <div style="margin-top: 12px; display: flex; gap: 8px; justify-content: flex-end;">
-              <button class="btn btn-ghost btn-sm" onclick="refreshArduinoReadings()">🔄 Refresh</button>
-              <button class="btn btn-primary btn-sm" onclick="viewAllReadings()">📋 View All</button>
             </div>
           </div>
         </div>

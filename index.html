@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -195,21 +195,49 @@ html, body { height: 100%; overflow: hidden; font-family: var(--font); backgroun
 
 <!-- MODALS -->
 <div id="loginModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:9999;align-items:center;justify-content:center;backdrop-filter:blur(4px);">
-  <div style="background:var(--bg2);border:1px solid var(--border2);border-radius:var(--radius2);width:380px;max-width:95vw;">
-    <div style="padding:18px 20px 14px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;">
-      <span style="font-size:15px;font-weight:600;">Sign In</span>
-      <button onclick="hideLogin()" style="background:none;border:none;color:var(--text3);cursor:pointer;font-size:18px;">✕</button>
+  <div style="background:var(--bg2); border:1px solid var(--border2); border-radius:var(--radius2); width:400px; max-width:95vw; overflow:hidden; box-shadow:0 20px 50px rgba(0,0,0,0.5);">
+    <div style="padding:24px 24px 16px; text-align:center; background:linear-gradient(to bottom, var(--bg3), var(--bg2));">
+      <img src="logo.png" style="height:48px; width:auto; margin-bottom:12px; filter: drop-shadow(0 4px 10px rgba(59,130,246,0.3));">
+      <div style="font-size:18px; font-weight:700; color:var(--text);">BreathSafe Login</div>
+      <div style="font-size:12px; color:var(--text3); margin-top:4px;">Secure Administrative Portal</div>
     </div>
-    <div style="padding:20px;">
-      <div style="display:grid;gap:8px;">
-        <button onclick="goToAdmin()" style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;background:var(--accent);color:white;border:none;border-radius:var(--radius);cursor:pointer;">
-          <span>🛡 Admin</span><span style="font-size:11px;opacity:.7">Full access</span>
+    
+    <div style="padding:24px;">
+      <form id="loginForm" onsubmit="handleLogin(event)">
+        <div style="margin-bottom:16px;">
+          <label for="loginEmail" style="display:block; font-size:11px; font-weight:600; color:var(--text3); text-transform:uppercase; letter-spacing:0.05em; margin-bottom:6px;">Email Address</label>
+          <input type="email" id="loginEmail" required 
+            style="width:100%; background:var(--bg); border:1px solid var(--border); border-radius:var(--radius); padding:12px 14px; color:var(--text); font-family:inherit; outline:none; transition:border-color 0.2s;"
+            onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--border)'">
+        </div>
+        
+        <div style="margin-bottom:24px;">
+          <label for="loginPass" style="display:block; font-size:11px; font-weight:600; color:var(--text3); text-transform:uppercase; letter-spacing:0.05em; margin-bottom:6px;">Password</label>
+          <div style="position:relative;">
+            <input type="password" id="loginPass" required 
+              style="width:100%; background:var(--bg); border:1px solid var(--border); border-radius:var(--radius); padding:12px 14px; color:var(--text); font-family:inherit; outline:none; transition:border-color 0.2s; padding-right:45px;"
+              onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--border)'">
+            <button type="button" onclick="togglePasswordVisibility()" 
+              style="position:absolute; right:12px; top:50%; transform:translateY(-50%); background:none; border:none; color:var(--text3); cursor:pointer; font-size:16px; padding:4px;">
+              <span id="passToggleIcon">👁️</span>
+            </button>
+          </div>
+        </div>
+        
+        <div id="loginError" style="display:none; padding:10px; border-radius:var(--radius); background:rgba(239,68,68,0.1); border:1px solid rgba(239,68,68,0.2); color:var(--red); font-size:12px; margin-bottom:16px; text-align:center;">
+          Invalid credentials. Please try again.
+        </div>
+
+        <button type="submit" id="loginSubmitBtn"
+          style="width:100%; background:var(--accent); color:white; border:none; border-radius:var(--radius); padding:14px; font-weight:600; font-size:13px; cursor:pointer; transition:all 0.2s; display:flex; align-items:center; justify-content:center; gap:8px;">
+          <span>Secure Sign In</span>
+          <span style="font-size:10px; opacity:0.8;">→</span>
         </button>
-        <button onclick="goToManagement()" style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;background:var(--bg3);color:var(--text);border:1px solid var(--border);border-radius:var(--radius);cursor:pointer;">
-          <span>⚙️ Management</span><span style="font-size:11px;opacity:.7">Device control</span>
-        </button>
-        <button onclick="hideLogin()" style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;background:var(--bg3);color:var(--text);border:1px solid var(--border);border-radius:var(--radius);cursor:pointer;">
-          <span>🌍 Public View</span><span style="font-size:11px;opacity:.7">Read-only</span>
+      </form>
+      
+      <div style="margin-top:20px; text-align:center;">
+        <button onclick="hideLogin()" style="background:none; border:none; color:var(--text3); cursor:pointer; font-size:11px; text-decoration:underline;">
+          Cancel and return to Public View
         </button>
       </div>
     </div>
@@ -499,12 +527,86 @@ function hideLogin() {
   document.getElementById('loginModal').style.display = 'none';
 }
 
-function goToAdmin() {
-  window.location.href = 'roles/admin/index.html';
+function togglePasswordVisibility() {
+  const passInput = document.getElementById('loginPass');
+  const icon = document.getElementById('passToggleIcon');
+  if (passInput.type === 'password') {
+    passInput.type = 'text';
+    icon.textContent = '🙈';
+  } else {
+    passInput.type = 'password';
+    icon.textContent = '👁️';
+  }
 }
 
-function goToManagement() {
-  window.location.href = 'roles/management/index.html';
+async function handleLogin(event) {
+  event.preventDefault();
+  const email = document.getElementById('loginEmail').value;
+  const pass = document.getElementById('loginPass').value;
+  const errorEl = document.getElementById('loginError');
+  const submitBtn = document.getElementById('loginSubmitBtn');
+  
+  errorEl.style.display = 'none';
+  submitBtn.disabled = true;
+  submitBtn.style.opacity = '0.7';
+  submitBtn.innerHTML = '<span>Verifying...</span>';
+
+  try {
+    const response = await fetch(
+      `${DB_CONFIG.url}/rest/v1/${DB_TABLES.systemUsers}?email=eq.${email}&password=eq.${pass}&status=eq.active`,
+      {
+        headers: {
+          'apikey': DB_CONFIG.anonKey,
+          'Authorization': `Bearer ${DB_CONFIG.anonKey}`
+        }
+      }
+    );
+    
+    const users = await response.json();
+    
+    if (users && users.length > 0) {
+      const user = users[0];
+      // Store user session (simple version)
+      localStorage.setItem('breathsafe_user', JSON.stringify({
+        id: user.user_id,
+        name: user.name,
+        role: user.role,
+        dept: user.dept
+      }));
+      
+      // Update last login
+      fetch(`${DB_CONFIG.url}/rest/v1/${DB_TABLES.systemUsers}?id=eq.${user.id}`, {
+        method: 'PATCH',
+        headers: {
+          'apikey': DB_CONFIG.anonKey,
+          'Authorization': `Bearer ${DB_CONFIG.anonKey}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ last_login: new Date().toISOString() })
+      });
+
+      // Redirect based on role
+      if (user.role === 'admin') {
+        window.location.href = 'roles/admin/overview.html';
+      } else if (user.role === 'management') {
+        window.location.href = 'roles/management/dashboard.html';
+      } else {
+        hideLogin();
+        alert('Welcome, ' + user.name + '. You have viewer access.');
+      }
+    } else {
+      errorEl.style.display = 'block';
+      submitBtn.disabled = false;
+      submitBtn.style.opacity = '1';
+      submitBtn.innerHTML = '<span>Secure Sign In</span><span style="font-size:10px; opacity:0.8;">→</span>';
+    }
+  } catch (error) {
+    console.error('Login error:', error);
+    alert('Connectivity error. Please check your internet.');
+    submitBtn.disabled = false;
+    submitBtn.style.opacity = '1';
+    submitBtn.innerHTML = '<span>Secure Sign In</span><span style="font-size:10px; opacity:0.8;">→</span>';
+  }
 }
 
 // ═══════════════════════════════════════════

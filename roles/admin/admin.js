@@ -12,10 +12,30 @@ const DB_TABLES = window.CONFIG?.tables || {
   notificationUsers: 'notification_users',
   smsNotifications: 'sms_notifications',
   systemUsers: 'system_users',
-  hourlyStats: 'hourly_stats'
+  hourlyStats: 'hourly_stats',
+  activity: 'system_activity'
 };
 
 const Database = {
+  async fetchReadingsForDevice(deviceId, limit = 10) {
+    try {
+      const response = await fetch(
+        `${DB_CONFIG.url}/rest/v1/${DB_TABLES.readings}?device_id=eq.${deviceId}&order=created_at.desc&limit=${limit}`,
+        {
+          headers: {
+            'apikey': DB_CONFIG.anonKey,
+            'Authorization': `Bearer ${DB_CONFIG.anonKey}`
+          }
+        }
+      );
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      return await response.json();
+    } catch (error) {
+      console.error(`Error fetching readings for ${deviceId}:`, error);
+      return [];
+    }
+  },
+
   async fetchLatestReadings(limit = 10) {
     try {
       const response = await fetch(
@@ -56,8 +76,9 @@ const Database = {
 
     const fetchCount = async (table, filter = '') => {
       try {
+        // Use select=* and limit=1 with count=exact to get total count across different ID schemas
         const res = await fetch(
-          `${DB_CONFIG.url}/rest/v1/${table}?select=id${filter}&limit=1`,
+          `${DB_CONFIG.url}/rest/v1/${table}?select=*${filter}&limit=1`,
           { headers }
         );
         const contentRange = res.headers.get('Content-Range') || '';
@@ -426,6 +447,22 @@ const Database = {
     }
   },
 
+  async updateDeviceStatus(deviceId, status) {
+    try {
+      await fetch(`${DB_CONFIG.url}/rest/v1/${DB_TABLES.devices}?device_id=eq.${deviceId}`, {
+        method: 'PATCH',
+        headers: {
+          'apikey': DB_CONFIG.anonKey,
+          'Authorization': `Bearer ${DB_CONFIG.anonKey}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ status: status })
+      });
+    } catch (e) {
+      console.error('Error updating device status in DB:', e);
+    }
+  },
+
   async getLatestDeviceLocation(deviceId) {
     try {
       const response = await fetch(
@@ -443,6 +480,47 @@ const Database = {
     } catch (error) {
       console.error('Error fetching latest device location:', error);
       return null;
+    }
+  },
+
+  async logActivity(activity) {
+    try {
+      const response = await fetch(`${DB_CONFIG.url}/rest/v1/${DB_TABLES.activity}`, {
+        method: 'POST',
+        headers: {
+          'apikey': DB_CONFIG.anonKey,
+          'Authorization': `Bearer ${DB_CONFIG.anonKey}`,
+          'Content-Type': 'application/json',
+          'Prefer': 'return=minimal'
+        },
+        body: JSON.stringify({
+          ...activity,
+          actor: activity.actor || 'Admin'
+        })
+      });
+      return response.ok;
+    } catch (error) {
+      console.error('Error logging activity:', error);
+      return false;
+    }
+  },
+
+  async fetchActivity(limit = 20) {
+    try {
+      const response = await fetch(
+        `${DB_CONFIG.url}/rest/v1/${DB_TABLES.activity}?order=created_at.desc&limit=${limit}`,
+        {
+          headers: {
+            'apikey': DB_CONFIG.anonKey,
+            'Authorization': `Bearer ${DB_CONFIG.anonKey}`
+          }
+        }
+      );
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      return await response.json();
+    } catch (error) {
+      console.error('Error fetching activity:', error);
+      return [];
     }
   }
 };
@@ -465,14 +543,15 @@ function generateOfflineData() {
     mockData.push({
       id: i + 1,
       created_at: mockTime.toISOString(),
-      temperature: 25 + Math.random() * 10,
-      humidity: 40 + Math.random() * 30,
-      mq135_raw: Math.floor(400 + Math.random() * 1600),
-      aqi_value: Math.floor(30 + Math.random() * 120),
-      aqi_category: 'Moderate'
+      device_id: 'AW-001',
+      temperature: 28.5,
+      humidity: 45.0,
+      mq135_raw: 280,
+      aqi_value: 25,
+      aqi_category: 'Good'
     });
   }
-  logDatabaseActivity('warn', 'System running in offline mode - using cached/mock data');
+  logRoleActivity('system', 'warn', 'Connectivity Loss: System running in offline fallback mode', 'hardware');
   return mockData;
 }
 
@@ -555,62 +634,81 @@ function buildAlertContent(level, device) {
   const temperature = getTemperatureText(device.temp || 0);
   const templates = {
     moderate: {
-      smsHeader: 'BreatheSafe Alert (Moderate Condition)',
-      smsBody: `Location: ${location}\nTime: ${time}\nAir Quality: ${airQuality}\nTemperature: ${temperature}\nDetails: Sensitive individuals may experience mild discomfort such as headache or fatigue.\nAdvice: Limit outdoor activities and stay hydrated.`,
+      smsHeader: 'BreatheSafe Community Advisory (MODERATE)',
+      smsBody: `Location: ${location}\nTime: ${time}\nAir Quality: ${airQuality}\nHealth Note: Air is slightly polluted. Sensitive groups should be aware.\nAdvice: Limit heavy outdoor exertion and stay hydrated.`,
       toastType: 'info',
       toastTitle: 'Moderate Air Condition',
-      toastMessage: `Location: ${location} | Time: ${time}\nAir quality is slightly polluted and temperature is rising. Some individuals may feel mild discomfort. Limit outdoor exposure.`
+      toastMessage: `Community Advisory: Slightly degraded air quality at ${location}. Sensitive individuals should consider precautions.`
     },
     high: {
-      smsHeader: 'BreatheSafe Warning (High Risk Condition)',
-      smsBody: `Location: ${location}\nTime: ${time}\nAir Quality: ${airQuality}\nTemperature: ${temperature}\nDetails: Risk of breathing difficulty, dizziness, dehydration, and reduced focus.\nAdvice: Avoid outdoor exposure, stay indoors, and drink plenty of water.`,
+      smsHeader: 'BreatheSafe PUBLIC WARNING (HIGH RISK)',
+      smsBody: `Location: ${location}\nTime: ${time}\nAir Quality: ${airQuality}\nHealth Risk: Potential for dizziness, fatigue, and breathing discomfort.\nCommunity Action: Stay indoors where possible. Suspend heavy outdoor activities.`,
       toastType: 'warn',
-      toastTitle: 'Unhealthy Conditions Detected',
-      toastMessage: `Location: ${location} | Time: ${time}\nPoor air quality and high temperature detected. Risk of fatigue, dizziness, and breathing discomfort. Stay indoors and hydrate.`
+      toastTitle: 'High Risk Condition',
+      toastMessage: `Public Warning: Poor air quality and high heat at ${location}. Community advised to stay indoors and hydrate.`
     },
     danger: {
-      smsHeader: 'BreatheSafe Emergency Alert (Critical Condition)',
-      smsBody: `Location: ${location}\nTime: ${time}\nAir Quality: ${airQuality}\nTemperature: ${temperature}\nDetails: High risk of heat stroke, asthma attacks, and serious health effects.\nAction Required: Suspend outdoor activities immediately and ensure student safety.`,
+      smsHeader: 'BreatheSafe EMERGENCY ALERT (CRITICAL)',
+      smsBody: `Location: ${location}\nTime: ${time}\nAir Quality: ${airQuality}\nCRITICAL RISK: Hazardous air and extreme heat levels detected.\nURGENT ACTION: Clear outdoor areas immediately. Ensure everyone is in a safe environment.`,
       toastType: 'error',
-      toastTitle: 'Emergency Environmental Alert',
-      toastMessage: `Location: ${location} | Time: ${time}\nHazardous air quality and extreme heat detected. Immediate action required: avoid outdoor activities and ensure safety precautions.`
+      toastTitle: 'Critical Health Alert',
+      toastMessage: `Emergency Alert: Hazardous conditions at ${location}. Immediate safety measures required for the community.`
     },
     normal: {
-      smsHeader: 'BreatheSafe Status (Normal Condition)',
-      smsBody: `Location: ${location}\nTime: ${time}\nAir Quality: Good\nTemperature: Comfortable\nDetails: Conditions are within safe and comfortable ranges.`,
+      smsHeader: 'BreatheSafe Awareness Update',
+      smsBody: `Location: ${location}\nTime: ${time}\nStatus: All environmental parameters are currently within safe ranges.\nNote: Air quality is Good.`,
       toastType: 'success',
-      toastTitle: 'Safe Environment',
-      toastMessage: `Location: ${location} | Time: ${time}\nAir quality and temperature are within safe and comfortable levels. No health risks detected.`
+      toastTitle: 'Environment Safe',
+      toastMessage: `Awareness Update: Air quality and temperature at ${location} are within optimal safety ranges.`
     }
   };
   return templates[level] || templates.normal;
 }
 
-function showDashboardToast(type, title, message, duration = 7000) {
+function showDashboardToast(type, title, message, duration = 6000) {
   let container = document.getElementById('toast-container');
   if (!container) {
     container = document.createElement('div');
     container.id = 'toast-container';
-    container.style.cssText = 'position:fixed;top:70px;right:16px;display:flex;flex-direction:column;gap:8px;z-index:10000;max-width:360px;';
+    container.style.cssText = 'position:fixed;top:80px;right:16px;display:flex;flex-direction:column;gap:10px;z-index:10000;max-width:280px;';
     document.body.appendChild(container);
   }
   const palette = {
-    success: { bg: 'rgba(34,197,94,.95)', border: 'rgba(34,197,94,.8)' },
-    info: { bg: 'rgba(59,130,246,.95)', border: 'rgba(59,130,246,.8)' },
-    warn: { bg: 'rgba(245,158,11,.95)', border: 'rgba(245,158,11,.8)' },
-    error: { bg: 'rgba(239,68,68,.95)', border: 'rgba(239,68,68,.8)' }
+    success: { bg: 'rgba(34,197,94,.92)', border: 'rgba(34,197,94,1)', icon: '✅' },
+    info: { bg: 'rgba(59,130,246,.92)', border: 'rgba(59,130,246,1)', icon: 'ℹ️' },
+    warn: { bg: 'rgba(245,158,11,.92)', border: 'rgba(245,158,11,1)', icon: '⚠️' },
+    error: { bg: 'rgba(239,68,68,.92)', border: 'rgba(239,68,68,1)', icon: '🚨' }
   };
   const color = palette[type] || palette.info;
   const toast = document.createElement('div');
-  toast.style.cssText = `background:${color.bg};border:1px solid ${color.border};color:#fff;border-radius:10px;padding:10px 12px;font-size:12px;line-height:1.4;box-shadow:0 8px 20px rgba(0,0,0,.28);white-space:pre-line;`;
-  toast.innerHTML = `<div style="font-weight:700;margin-bottom:4px;">${title}</div><div>${message}</div>`;
+  toast.className = 'dashboard-toast';
+  toast.style.cssText = `background:${color.bg};border:1px solid ${color.border};color:#fff;border-radius:10px;padding:10px 14px;font-size:12px;line-height:1.4;box-shadow:0 8px 24px rgba(0,0,0,.3);position:relative;animation:toastSlideIn .3s ease;cursor:default;transition:all .3s ease;`;
+  
+  const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  
+  toast.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;gap:10px;">
+      <div style="display:flex;align-items:center;gap:6px;">
+        <span style="font-size:14px;">${color.icon}</span>
+        <div style="font-weight:700;">${title}</div>
+      </div>
+      <button onclick="this.parentElement.parentElement.remove()" style="background:none;border:none;color:#fff;cursor:pointer;font-size:14px;padding:0;opacity:0.6;">✕</button>
+    </div>
+    <div style="opacity:0.9;font-size:11px;">${message}</div>
+    <div style="position:absolute;bottom:0;left:0;height:2px;background:rgba(255,255,255,0.3);width:100%;border-radius:0 0 10px 10px;transform-origin:left;animation:toastProgress ${duration}ms linear forwards;"></div>
+  `;
+  
   container.appendChild(toast);
-  setTimeout(() => {
+
+  const dismiss = () => {
     toast.style.opacity = '0';
-    toast.style.transform = 'translateX(8px)';
-    toast.style.transition = 'all .22s ease';
-    setTimeout(() => toast.remove(), 220);
-  }, duration);
+    toast.style.transform = 'translateX(20px) scale(0.95)';
+    setTimeout(() => toast.remove(), 300);
+  };
+
+  const timeout = setTimeout(dismiss, duration);
+  toast.onmouseenter = () => { clearTimeout(timeout); };
+  toast.onmouseleave = () => { setTimeout(dismiss, 2000); };
 }
 
 let devices = [
@@ -662,10 +760,13 @@ let currentEditingUserId = null;
 let currentEditingDeviceId = null;
 let aqiChartInstance = null;
 let envChartInstance = null;
+let pollutantChartInstance = null;
 let reportUserBarChart = null;
 let reportAlertLineChart = null;
 let reportSmsStackedChart = null;
 let reportAqiPieChart = null;
+let reportPollutantLineChart = null;
+let currentAlertFilter = 'all';
 let modalMap = null;
 let modalMarker = null;
 
@@ -686,13 +787,16 @@ async function loadOverview() {
   let dataSource = 'Offline (Mock Data)';
 
   try {
-    readings = await Database.fetchLatestReadings(10);
+    let dbReadings = await Database.fetchLatestReadings(50); 
+    // Filter out empty/ghost records
+    readings = (dbReadings || []).filter(r => r.mq135_raw !== null || r.aqi_value !== null);
+    
     if (readings && readings.length > 0) {
       usingRealData = true;
       dataSource = 'Supabase Database';
-      console.log(`✅ Admin Dashboard: Connected to database - ${readings.length} readings found`);
-      if (!systemActivity.some(a => a.msg.includes('Connected to database'))) {
-        systemActivity.unshift({ type: 'success', msg: `Connected to database: Fetched ${readings.length} readings`, time: new Date().toLocaleTimeString() });
+      console.log(`✅ Admin Dashboard: Connected to database - ${readings.length} valid readings found`);
+      if (!systemActivity.some(a => a.msg && a.msg.includes('Connected to database'))) {
+        logRoleActivity('admin', 'success', `Connected to database: Fetched ${readings.length} readings`, 'admin');
       }
     }
   } catch (error) {
@@ -704,42 +808,41 @@ async function loadOverview() {
   try {
     const dbDevices = await Database.getDevices();
     if (dbDevices && dbDevices.length > 0) {
-      const defaultDevice = devices[0] || { aqi:0, co2:0, temp:0, hum:0, battery:100, lastSeen:'Just now' };
-      devices = dbDevices.map((d, i) => ({
-        id: d.device_id,
-        name: d.name,
-        location: d.location,
-        lat: d.latitude,
-        lng: d.longitude,
-        status: d.status,
-        aqi: i === 0 ? defaultDevice.aqi : 0,
-        temp: i === 0 ? defaultDevice.temp : 0,
-        hum: i === 0 ? defaultDevice.hum : 0,
-        co2: i === 0 ? defaultDevice.co2 : 0,
-        battery: i === 0 ? defaultDevice.battery : 100,
-        lastSeen: i === 0 ? defaultDevice.lastSeen : 'Never'
-      }));
+      devices = dbDevices.map(d => {
+        // Match this device to its latest reading from the 'readings' pool
+        const latest = readings ? readings.find(r => r.device_id === d.device_id) : null;
+        
+        return {
+          id: d.device_id,
+          name: d.name,
+          location: d.location,
+          lat: d.latitude,
+          lng: d.longitude,
+          status: d.status,
+          aqi: latest ? (latest.aqi_value || 0) : 0,
+          temp: latest ? (latest.temperature || 0) : 0,
+          hum: latest ? (latest.humidity || 0) : 0,
+          co2: latest ? Math.round((latest.mq135_raw || 0) * 0.12) : 0,
+          battery: 100,
+          lastSeen: latest ? formatTimeAgo(latest.created_at) : 'Never'
+        };
+      });
+      
+      // Sort devices so the one with the most recent data is first (for the main summary card)
+      devices.sort((a, b) => {
+        if (a.lastSeen === 'Never') return 1;
+        if (b.lastSeen === 'Never') return -1;
+        return 0; // We'd need actual dates for better sorting, but this is a start
+      });
     }
   } catch(e) {
     console.error('Error fetching devices in overview:', e);
   }
 
-  const totalReadings = readings ? readings.length : 0;
-  const avgAQI = readings && readings.length > 0 ?
-    Math.round(readings.reduce((sum, r) => sum + (r.aqi_value || 0), 0) / readings.length) : 0;
-
   if (readings && readings.length > 0) {
     const latest = readings[0];
-    devices[0] = {
-      ...devices[0],
-      aqi: latest.aqi_value || 0,
-      temp: latest.temperature || 0,
-      hum: latest.humidity || 0,
-      co2: Math.round((latest.mq135_raw || 0) * 0.12),
-      battery: 85 + Math.random() * 15,
-      lastSeen: usingRealData ? formatTimeAgo(latest.created_at) : 'Offline Mode'
-    };
-    console.log(`✅ Admin Dashboard: Updated with ${usingRealData ? 'real' : 'offline'} data - AQI: ${devices[0].aqi}, Temp: ${devices[0].temp}°C`);
+    console.log(`✅ Admin Dashboard: Latest Reading - AQI: ${latest.aqi_value}, Device: ${latest.device_id}`);
+    if (latest.aqi_value > 100) await checkAndTriggerSMSNotifications(latest.aqi_value);
   }
 
   let stats = { totalReadings: null, totalDevices: null, totalUsers: null, totalSMS: null };
@@ -913,41 +1016,193 @@ async function loadOverview() {
     ].map(m => `<div class="metric-card"><div class="mc-label">${m.label}</div><div class="mc-value" style="color:${m.color}">${m.val}<span class="mc-unit">${m.unit}</span></div></div>`).join('');
   }
 
-  const allActivity = [...databaseActivityLog, ...systemActivity].slice(0, 10);
+  let dbActivity = [];
+  try {
+    dbActivity = await Database.fetchActivity(10);
+  } catch (e) { console.warn('Activity fetch failed'); }
+
+  const formattedDbActivity = (dbActivity || []).map(a => ({
+    type: a.type,
+    msg: a.message,
+    time: Database.formatTimeAgo(a.created_at)
+  }));
+
+  const allActivity = [...systemActivity, ...(dbActivity || [])].slice(0, 10);
   const systemActivityEl = document.getElementById('system-activity');
   if (systemActivityEl) {
-    systemActivityEl.innerHTML = allActivity.length > 0 ? allActivity.map(a => `
-      <div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--border);">
-        <div style="width:8px;height:8px;border-radius:50%;background:${a.type === 'success' ? 'var(--green)' : a.type === 'warn' ? 'var(--yellow)' : a.type === 'error' ? 'var(--red)' : 'var(--accent)'}"></div>
-        <span style="flex:1;font-size:12px;">${a.msg}</span>
-        <span style="font-size:11px;color:var(--text3);">${a.time}</span>
-      </div>
-    `).join('') : '<p style="color:var(--text2);text-align:center;padding:20px;">No system activity recorded</p>';
+    systemActivityEl.innerHTML = allActivity.length > 0 ? allActivity.map(a => {
+      const isDb = !!a.id;
+      const msg = isDb ? a.message : a.msg;
+      const type = a.type;
+      const time = isDb ? Database.formatTimeAgo(a.created_at) : a.time;
+      const category = a.category || 'general';
+      
+      let icon = 'ℹ️';
+      if (category === 'hardware') icon = '📡';
+      if (category === 'sms') icon = '📤';
+      if (category === 'user') icon = '👤';
+      if (category === 'device' || category === 'admin') icon = '🛠️';
+      if (type === 'danger' || type === 'error') icon = '🚨';
+
+      return `
+        <div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border);">
+          <div style="font-size:16px; width:24px; text-align:center;">${icon}</div>
+          <div style="flex:1;">
+            <div style="font-size:12px; font-weight:600; color:var(--text2); line-height:1.3;">${msg}</div>
+            <div style="display:flex; justify-content:space-between; margin-top:3px;">
+              <span style="font-size:9px; color:var(--text3); text-transform:uppercase; letter-spacing:0.05em;">${category}</span>
+              <span style="font-size:9px; color:var(--text3);">${time}</span>
+            </div>
+          </div>
+        </div>
+      `;
+    }).join('') : '<p style="color:var(--text2);text-align:center;padding:20px;">No system activity recorded</p>';
+  }
+}
+
+function setAlertFilter(filter, btnElement) {
+  currentAlertFilter = filter;
+  const tabs = document.querySelectorAll('.tab-btn');
+  tabs.forEach(t => t.classList.remove('active'));
+  if (btnElement) {
+    btnElement.classList.add('active');
+  } else {
+    // Fallback if not clicked directly
+    tabs[0].classList.add('active');
+  }
+  loadAlerts();
+}
+
+async function loadAlerts() {
+  const feed = document.getElementById('admin-alerts');
+  if (!feed) return;
+  
+  const sortVal = document.getElementById('alert-sort')?.value || 'newest';
+  const severityVal = document.getElementById('severity-filter')?.value || 'all';
+  
+  feed.innerHTML = '<div style="text-align:center;padding:60px;color:var(--text3);"><div class="live-dot" style="margin:0 auto 12px;width:12px;height:12px;"></div>Filtering activity stream...</div>';
+  
+  try {
+    const dbActivity = await Database.fetchActivity(100);
+    if (!dbActivity || dbActivity.length === 0) {
+      feed.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text2);background:var(--bg3);border-radius:12px;">No activity recorded yet.</div>';
+      return;
+    }
+
+    let filtered = dbActivity;
+    
+    // 1. Filter by Category (Tabs)
+    if (currentAlertFilter !== 'all') {
+      filtered = filtered.filter(a => (a.category || '').toLowerCase() === currentAlertFilter);
+    }
+    
+    // 2. Filter by Severity
+    if (severityVal !== 'all') {
+      filtered = filtered.filter(a => {
+        const type = (a.type || '').toLowerCase();
+        if (severityVal === 'critical') return type === 'error' || type === 'danger';
+        if (severityVal === 'warning') return type === 'warn';
+        if (severityVal === 'info') return type === 'info' || type === 'success';
+        return true;
+      });
+    }
+
+    // 3. Sort
+    if (sortVal === 'oldest') {
+      filtered.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+    } else {
+      filtered.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+    }
+
+    if (filtered.length === 0) {
+      feed.innerHTML = `<div style="text-align:center;padding:40px;color:var(--text2);background:var(--bg3);border-radius:12px;">No activities found in the <b>${currentAlertFilter}</b> category.</div>`;
+      return;
+    }
+
+    feed.innerHTML = filtered.map(a => {
+      const type = (a.category || 'system').toLowerCase();
+      const isDanger = a.type === 'error' || a.type === 'danger';
+      const isWarn = a.type === 'warn';
+      
+      const icon = isDanger ? '🚨' : isWarn ? '⚠️' : type === 'sms' ? '📤' : type === 'hardware' ? '📡' : '📝';
+      const borderCol = isDanger ? 'var(--red)' : isWarn ? 'var(--yellow)' : type === 'sms' ? 'var(--teal)' : type === 'hardware' ? 'var(--purple)' : 'var(--accent)';
+      const bgCol = isDanger ? 'rgba(239,68,68,0.05)' : isWarn ? 'rgba(245,158,11,0.05)' : 'rgba(255,255,255,0.02)';
+      
+      const dateObj = new Date(a.created_at);
+      const fullDate = dateObj.toLocaleDateString();
+      const fullTime = dateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      
+      return `
+        <div class="alert-item" style="border-left: 4px solid ${borderCol}; background: ${bgCol}; padding: 16px; margin-bottom: 12px; border-radius: 8px; transition: transform 0.2s;">
+          <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 16px;">
+            <div style="font-size: 20px; background: var(--bg3); padding: 8px; border-radius: 8px; border: 1px solid var(--border);">${icon}</div>
+            <div style="flex: 1;">
+              <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
+                <span class="cat-badge" style="background:${borderCol}20; color:${borderCol}; border: 1px solid ${borderCol}40;">${type}</span>
+                <span style="font-size: 11px; color: var(--text3); font-weight: 600;">${a.actor || 'System'}</span>
+              </div>
+              <div style="font-size: 14px; font-weight: 500; color: var(--text); line-height: 1.5;">${a.message}</div>
+              <div style="font-size: 11px; color: var(--text3); margin-top: 8px; display: flex; gap: 16px; flex-wrap: wrap; opacity: 0.8;">
+                <span>📅 ${fullDate}</span>
+                <span>⏰ ${fullTime}</span>
+              </div>
+            </div>
+            <div style="text-align: right; flex-shrink: 0;">
+              <div style="font-size: 10px; color: var(--text2); font-family: var(--mono); font-weight: 600; background: var(--bg3); padding: 2px 8px; border-radius: 10px;">${formatTimeAgo(a.created_at)}</div>
+            </div>
+          </div>
+        </div>
+      `;
+    }).join('');
+  } catch (error) {
+    console.error('Error loading alerts:', error);
+    feed.innerHTML = '<div style="text-align:center;padding:40px;color:var(--red);">Failed to sync with the secure activity stream.</div>';
   }
 }
 
 async function loadArduinoReadingsTable() {
   try {
-    const readings = await Database.fetchLatestReadings(20);
+    let readings = await Database.fetchLatestReadings(50);
+    // Filter out 'empty' readings (must have either raw MQ135 or AQI value)
+    readings = (readings || []).filter(r => (r.mq135_raw !== null && r.mq135_raw !== undefined) || (r.aqi_value !== null && r.aqi_value !== undefined));
+    
     const tbody = document.getElementById('arduino-readings-body');
     if (!tbody) return;
-    if (!readings || readings.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--text2);padding:20px;">No Arduino readings available</td></tr>';
+    if (readings.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--text2);padding:20px;">No valid Arduino readings available</td></tr>';
       return;
     }
-    const co2s = readings.map(r => Math.round((r.mq135_raw || 0) * 0.12));
-    tbody.innerHTML = readings.map((reading, index) => {
-      const co2ppm = Math.round((reading.mq135_raw || 0) * 0.12);
-      const aqiColorValue = reading.aqi_value <= 50 ? '#22c55e' : reading.aqi_value <= 100 ? '#f59e0b' : reading.aqi_value <= 150 ? '#f97316' : '#ef4444';
+    
+    // Only show recent 10 records
+    const recentTen = readings.slice(0, 10);
+    
+    tbody.innerHTML = recentTen.map((reading, index) => {
+      // 1. Resolve AQI (Use DB value, or fallback to calculation, or 0)
+      let displayAqi = reading.aqi_value;
+      if (displayAqi === null || displayAqi === undefined) {
+        displayAqi = reading.mq135_raw ? Math.max(0, Math.round((reading.mq135_raw - 150) * 300 / 2350)) : 0;
+      }
+      
+      const aqiColorValue = aqiColor(displayAqi);
+      
+      // 2. Resolve CO2 (Use DB value or fallback with 400ppm baseline)
+      const co2Val = reading.co2_ppm ? Math.round(reading.co2_ppm) : Math.round((reading.mq135_raw || 0) * 0.12 + 400);
+      
+      // 3. Resolve Alcohol
+      const alcVal = (reading.alcohol_ppm !== null && reading.alcohol_ppm !== undefined) ? reading.alcohol_ppm.toFixed(1) : '--';
+
       return `
         <tr style="${index === 0 ? 'background:rgba(34,197,94,0.1);' : ''}">
           <td style="font-size:11px; color:var(--text2);">${formatTimeAgo(reading.created_at)}</td>
-          <td style="font-weight:700; color:${aqiColorValue}; font-family:var(--mono);">${reading.aqi_value || '--'}</td>
-          <td><span class="status-badge" style="background:${aqiColorValue}20; color:${aqiColorValue}; font-size:10px;">${reading.aqi_category || 'Unknown'}</span></td>
-          <td style="font-family:var(--mono);">${reading.temperature ? reading.temperature.toFixed(1) : '--'}°C</td>
-          <td style="font-family:var(--mono);">${reading.humidity ? reading.humidity.toFixed(0) : '--'}%</td>
+          <td style="font-weight:700; color:${aqiColorValue}; font-family:var(--mono);">${displayAqi}</td>
+          <td><span class="status-badge" style="background:${aqiColorValue}20; color:${aqiColorValue}; font-size:10px;">${reading.aqi_category || aqiLabel(displayAqi)}</span></td>
+          <td style="font-family:var(--mono);">${(reading.temperature !== null && reading.temperature !== undefined) ? reading.temperature.toFixed(1) + '°C' : '--'}</td>
+          <td style="font-family:var(--mono);">${(reading.humidity !== null && reading.humidity !== undefined) ? reading.humidity.toFixed(0) + '%' : '--'}</td>
           <td style="font-family:var(--mono); color:var(--purple);">${reading.mq135_raw || '--'}</td>
-          <td style="font-family:var(--mono); color:var(--accent);">${co2ppm} ppm</td>
+          <td style="font-family:var(--mono); font-size:10px;">
+            <div style="color:var(--accent);">CO₂: ${co2Val}</div>
+            <div style="color:var(--teal); opacity:0.8;">ALC: ${alcVal}</div>
+          </td>
           <td><span class="status-badge status-online" style="font-size:10px;">✅ Valid</span></td>
         </tr>
       `;
@@ -985,9 +1240,9 @@ function drawOverviewCharts(readings) {
     if (Number.isNaN(d.getTime())) return `#${i + 1}`;
     return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   });
-  const aqiData = sorted.map(r => numeric(r && r.aqi_value, 0));
-  const tempData = sorted.map(r => numeric(r && r.temperature, 0));
-  const humData = sorted.map(r => numeric(r && r.humidity, 0));
+  const aqiData = sorted.map(r => r.aqi_value !== null ? numeric(r.aqi_value) : null);
+  const tempData = sorted.map(r => r.temperature !== null ? numeric(r.temperature) : null);
+  const humData = sorted.map(r => r.humidity !== null ? numeric(r.humidity) : null);
   const gridColor = 'rgba(255,255,255,0.05)';
   const tickStyle = { color: '#556b82', font: { size: 10 } };
   const aqiCtx = document.getElementById('overview-aqi-chart');
@@ -1021,6 +1276,33 @@ function drawOverviewCharts(readings) {
       }
     });
     setTimeout(() => envChartInstance && envChartInstance.resize(), 0);
+  }
+  
+  const polCtx = document.getElementById('overview-pollutant-chart');
+  if (polCtx) {
+    if (pollutantChartInstance) try { pollutantChartInstance.destroy(); } catch (e) {}
+    const co2Data = sorted.map(r => numeric(r.co2_ppm || (r.mq135_raw * 0.12), 400));
+    const nh3Data = sorted.map(r => numeric(r.nh3_ppm, 0));
+    const bzData  = sorted.map(r => numeric(r.benzene_ppm, 0));
+    const alcData = sorted.map(r => numeric(r.alcohol_ppm, 0));
+
+    pollutantChartInstance = new Chart(polCtx.getContext('2d'), {
+      type: 'bar',
+      data: {
+        labels,
+        datasets: [
+          { label: 'CO₂', data: co2Data, backgroundColor: 'rgba(168,85,247,0.6)', borderRadius: 4 },
+          { label: 'NH₃', data: nh3Data, backgroundColor: 'rgba(34,197,94,0.6)', borderRadius: 4 },
+          { label: 'Benzene', data: bzData, backgroundColor: 'rgba(239,68,68,0.6)', borderRadius: 4 },
+          { label: 'Alcohol', data: alcData, backgroundColor: 'rgba(20,184,166,0.6)', borderRadius: 4 }
+        ]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { labels: { color: '#8fa3bc', boxWidth: 10, font: { size: 10 } } } },
+        scales: { x: { grid: { color: gridColor }, ticks: tickStyle }, y: { grid: { color: gridColor }, ticks: tickStyle, beginAtZero: true } }
+      }
+    });
   }
 }
 
@@ -1182,6 +1464,47 @@ async function loadReports() {
           options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { color: '#8fa3bc' } } } }
         });
       }
+      
+      const pollLineCtx = document.getElementById('report-pollutant-line-chart');
+      if (pollLineCtx) {
+        if (reportPollutantLineChart) reportPollutantLineChart.destroy();
+        const sortedReadings = [...readings].reverse();
+        console.log('📊 Generating Pollutant Report for', sortedReadings.length, 'readings');
+        
+        const lineLabels = sortedReadings.map((r, idx) => {
+          const d = new Date(r.created_at);
+          return Number.isNaN(d.getTime()) ? `#${idx + 1}` : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        });
+        
+        // Use calculated fallbacks if specific PPM columns are missing
+        const getVal = (val, raw, factor, base = 0) => {
+          const n = Number(val);
+          if (Number.isFinite(n) && n > 0) return n;
+          return Math.round((Number(raw) || 0) * factor) + base;
+        };
+
+        reportPollutantLineChart = new Chart(pollLineCtx.getContext('2d'), {
+          type: 'line',
+          data: {
+            labels: lineLabels,
+            datasets: [
+              { label: 'CO₂ (ppm)', data: sortedReadings.map(r => getVal(r.co2_ppm, r.mq135_raw, 0.12, 400)), borderColor: '#a855f7', backgroundColor: 'rgba(168,85,247,0.1)', fill: true, tension: 0.3, pointRadius: 1 },
+              { label: 'NH₃ (ppm)', data: sortedReadings.map(r => getVal(r.nh3_ppm, r.mq135_raw, 0.08)), borderColor: '#22c55e', backgroundColor: 'rgba(34,197,94,0.1)', fill: true, tension: 0.3, pointRadius: 1 },
+              { label: 'Benzene (ppm)', data: sortedReadings.map(r => getVal(r.benzene_ppm, r.mq135_raw, 0.04)), borderColor: '#ef4444', backgroundColor: 'rgba(239,68,68,0.1)', fill: true, tension: 0.3, pointRadius: 1 },
+              { label: 'Alcohol (ppm)', data: sortedReadings.map(r => getVal(r.alcohol_ppm, r.mq135_raw, 0.06)), borderColor: '#14b8a6', backgroundColor: 'rgba(20,184,166,0.1)', fill: true, tension: 0.3, pointRadius: 1 }
+            ]
+          },
+          options: {
+            responsive: true, maintainAspectRatio: false,
+            interaction: { mode: 'index', intersect: false },
+            scales: { 
+              x: { grid: { color: gridColor }, ticks: tickStyle }, 
+              y: { grid: { color: gridColor }, ticks: tickStyle, beginAtZero: true } 
+            },
+            plugins: { legend: { labels: { color: '#8fa3bc', boxWidth: 12, font: { size: 11 } } } }
+          }
+        });
+      }
     } else {
       console.warn('Chart.js not loaded, skipping chart generation');
       const chartContainers = [
@@ -1228,12 +1551,29 @@ function updateDevicesMapMarkers() {
       radius: 12, color: col, fillColor: col, fillOpacity: 0.75, weight: 2
     }).addTo(devicesPageMap);
     mk.bindPopup(`
-      <div style="min-width:180px;font-family:'Sora',sans-serif;">
+      <div style="min-width:200px;font-family:'Sora',sans-serif;">
         <div style="font-weight:600;font-size:13px;">${device.name}</div>
-        <div style="font-size:11px;color:#8fa3bc;">${device.location || ''} · ${device.id}</div>
-        <div style="margin-top:6px;font-size:12px;">AQI: <b style="color:${col}">${device.aqi || '--'}</b></div>
-        <div style="font-size:11px;color:#8fa3bc;">Status: ${device.status}</div>
-        <button onclick="openDeviceDetail('${device.id}')" style="margin-top:8px;background:rgba(59,130,246,.2);color:#60a5fa;border:1px solid rgba(59,130,246,.3);border-radius:6px;padding:3px 10px;font-size:11px;cursor:pointer;">View Details</button>
+        <div style="font-size:11px;color:#8fa3bc;margin-bottom:8px;">${device.location || ''} · ${device.id}</div>
+        
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;">
+          <div style="background:rgba(59,130,246,.1);padding:6px;border-radius:6px;text-align:center;">
+            <div style="font-size:9px;color:#8fa3bc;text-transform:uppercase;">AQI</div>
+            <div style="font-weight:700;color:${col};font-size:14px;">${device.aqi || '--'}</div>
+          </div>
+          <div style="background:var(--bg3);padding:6px;border-radius:6px;text-align:center;">
+            <div style="font-size:9px;color:#8fa3bc;text-transform:uppercase;">Status</div>
+            <div style="font-size:11px;color:${device.status === 'active' ? 'var(--green)' : 'var(--red)'}">${device.status}</div>
+          </div>
+        </div>
+
+        <div style="display:flex;justify-content:space-between;font-size:11px;padding:4px 0;border-top:1px solid var(--border);">
+          <span>🌡️ Temp:</span><span style="font-weight:600;">${device.temp ? device.temp.toFixed(1) + '°C' : '--'}</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;font-size:11px;padding:4px 0;">
+          <span>💧 Humidity:</span><span style="font-weight:600;">${device.hum ? device.hum.toFixed(0) + '%' : '--'}</span>
+        </div>
+
+        <button onclick="openDeviceDetail('${device.id}')" style="margin-top:10px;width:100%;background:var(--accent);color:#fff;border:none;border-radius:6px;padding:6px;font-size:11px;font-weight:600;cursor:pointer;">📡 View Detailed Analysis</button>
       </div>
     `);
     devicesPageMarkers.push(mk);
@@ -1265,27 +1605,103 @@ async function openDeviceDetail(deviceId) {
   if (elHum) elHum.textContent = device.hum ? device.hum + '%' : '--';
   const tbody = document.getElementById('dv-readings-body');
   if (tbody) tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text2);padding:12px;">Loading readings...</td></tr>';
+  
+  const consoleEl = document.getElementById('dv-console');
+  if (consoleEl) consoleEl.innerHTML = '<span style="opacity:0.5;">[SYSTEM] Establishing remote connection...</span>';
+  
   showModal('device-detail-modal');
+  
+  // Start Console Polling
+  if (consoleInterval) clearInterval(consoleInterval);
+  refreshConsole(deviceId);
+  consoleInterval = setInterval(() => refreshConsole(deviceId), 5000);
+
   try {
-    const readings = await Database.fetchLatestReadings(10);
-    if (!readings || readings.length === 0) {
-      if (tbody) tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text2);padding:12px;">No readings available</td></tr>';
-      return;
+    // 1. Fetch the very latest reading for this specific device to update the header
+    const deviceReadings = await Database.fetchReadingsForDevice(deviceId, 10);
+    
+    if (deviceReadings && deviceReadings.length > 0) {
+      const latest = deviceReadings[0];
+      
+      // Update header with real data from DB
+      if (aqiEl) {
+        aqiEl.textContent = latest.aqi_value || '--';
+        aqiEl.style.color = aqiColor(latest.aqi_value || 0);
+      }
+      if (elHum) elHum.textContent = latest.humidity ? latest.humidity.toFixed(0) + '%' : '--';
+      
+      // Update Hardware Integrity Status
+      const updateStat = (id, working) => {
+        const el = document.getElementById(id);
+        if (el) {
+          el.textContent = working ? '🟢' : '🔴';
+          el.title = working ? 'Sensor Operating Normally' : 'Sensor Malfunction or No Data';
+        }
+      };
+
+      const isOnline = device.status === 'active' || (new Date() - new Date(latest.created_at) < 180000); // 3 min heartbeat
+      updateStat('stat-esp32', isOnline);
+      updateStat('stat-dht11', isOnline && latest.temperature !== null && latest.humidity !== null);
+      updateStat('stat-mq135', isOnline && latest.mq135_raw !== null);
+      updateStat('stat-gps', isOnline && latest.latitude !== null && latest.longitude !== null);
+      
+      // SIM900 check: assume working if online and no recent SMS failures logged specifically as 'danger' for this user/device
+      updateStat('stat-sim900', isOnline); 
+      
+      // Update the table with the recent history
+      if (tbody) {
+        tbody.innerHTML = deviceReadings.map(r => {
+          const col = r.aqi_value <= 50 ? '#22c55e' : r.aqi_value <= 100 ? '#f59e0b' : r.aqi_value <= 150 ? '#f97316' : '#ef4444';
+          
+          // Use specific gas values if available, otherwise fallback to generic estimate
+          const co2 = r.co2_ppm ? Math.round(r.co2_ppm) : Math.round((r.mq135_raw || 0) * 0.12);
+          const nh3 = r.nh3_ppm ? r.nh3_ppm.toFixed(2) : '--';
+          const benzene = r.benzene_ppm ? r.benzene_ppm.toFixed(3) : '--';
+
+          return `<tr>
+            <td style="font-size:11px;color:var(--text2);">${formatTimeAgo(r.created_at)}</td>
+            <td style="font-weight:700;color:${col};font-family:var(--mono);">${r.aqi_value || '--'}</td>
+            <td><span style="font-size:10px;color:${col};">${r.aqi_category || 'Unknown'}</span></td>
+            <td style="font-family:var(--mono);">${r.temperature ? r.temperature.toFixed(1) : '--'}°C</td>
+            <td style="font-family:var(--mono);">${r.humidity ? r.humidity.toFixed(0) : '--'}%</td>
+            <td style="font-family:var(--mono);color:var(--accent); font-size:10px;">
+              <div title="Carbon Dioxide">CO₂: ${co2}</div>
+              <div title="Ammonia" style="opacity:0.8;">NH₃: ${nh3}</div>
+              <div title="Benzene" style="opacity:0.8;">BZ: ${benzene}</div>
+            </td>
+          </tr>`;
+        }).join('');
+      }
+      // Highlight likely pollutants based on AQI
+      const pollutantsEl = document.getElementById('dv-pollutants');
+      if (pollutantsEl) {
+        const aqi = latest.aqi_value || 0;
+        const spans = pollutantsEl.querySelectorAll('span');
+        spans.forEach(span => {
+          if (aqi > 100) {
+            span.style.borderColor = 'rgba(239,68,68,.4)';
+            span.style.background = 'rgba(239,68,68,.1)';
+            span.style.color = '#fca5a5';
+            span.style.borderStyle = 'solid';
+            span.style.borderWidth = '1px';
+          } else {
+            span.style.borderColor = 'transparent';
+            span.style.background = 'var(--bg3)';
+            span.style.color = 'var(--text2)';
+            span.style.borderStyle = 'none';
+          }
+        });
+      }
+    } else {
+      if (tbody) tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text2);padding:12px;">No historical readings found for this device</td></tr>';
+      // Fallback to empty values if no readings exist
+      if (aqiEl) aqiEl.textContent = '--';
+      if (document.getElementById('dv-temp')) document.getElementById('dv-temp').textContent = '--';
+      if (document.getElementById('dv-hum')) document.getElementById('dv-hum').textContent = '--';
     }
-    if (tbody) tbody.innerHTML = readings.map(r => {
-      const co2 = Math.round((r.mq135_raw || 0) * 0.12);
-      const col = r.aqi_value <= 50 ? '#22c55e' : r.aqi_value <= 100 ? '#f59e0b' : r.aqi_value <= 150 ? '#f97316' : '#ef4444';
-      return `<tr>
-        <td style="font-size:11px;color:var(--text2);">${formatTimeAgo(r.created_at)}</td>
-        <td style="font-weight:700;color:${col};font-family:var(--mono);">${r.aqi_value || '--'}</td>
-        <td><span style="font-size:10px;color:${col};">${r.aqi_category || 'Unknown'}</span></td>
-        <td style="font-family:var(--mono);">${r.temperature ? r.temperature.toFixed(1) : '--'}°C</td>
-        <td style="font-family:var(--mono);">${r.humidity ? r.humidity.toFixed(0) : '--'}%</td>
-        <td style="font-family:var(--mono);color:var(--accent);">${co2} ppm</td>
-      </tr>`;
-    }).join('');
   } catch (e) {
-    if (tbody) tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--red);padding:12px;">Error loading readings</td></tr>';
+    console.error('Error loading device details:', e);
+    if (tbody) tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--red);padding:12px;">Error loading data from server</td></tr>';
   }
 }
 
@@ -1299,27 +1715,41 @@ async function loadDevices() {
   if (!table) return;
   table.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--text2);padding:20px;">Loading devices from database...</td></tr>';
   try {
-    const dbDevices = await Database.getDevices();
+    const [dbDevices, latestReadings] = await Promise.all([
+      Database.getDevices(),
+      Database.fetchLatestReadings(50)
+    ]);
+
     if (dbDevices && dbDevices.length > 0) {
-      devices = dbDevices.map(d => ({
-        id: d.device_id,
-        name: d.name,
-        location: d.location,
-        lat: d.latitude,
-        lng: d.longitude,
-        status: d.status,
-        aqi: 0,
-        temp: 0,
-        hum: 0,
-        battery: 100,
-        lastSeen: 'Never'
+      devices = await Promise.all(dbDevices.map(async d => {
+        // Fetch the specific latest reading for THIS device
+        const latestResponse = await fetch(`${DB_CONFIG.url}/rest/v1/${DB_TABLES.readings}?device_id=eq.${d.device_id}&select=*&order=created_at.desc&limit=1`, {
+          headers: { 'apikey': DB_CONFIG.anonKey, 'Authorization': `Bearer ${DB_CONFIG.anonKey}` }
+        });
+        const latestData = await latestResponse.json();
+        const latest = latestData && latestData.length > 0 ? latestData[0] : null;
+
+        return {
+          id: d.device_id,
+          name: d.name,
+          location: d.location,
+          lat: d.latitude,
+          lng: d.longitude,
+          status: d.status,
+          aqi: latest ? latest.aqi_value : null,
+          temp: latest ? latest.temperature : null,
+          hum: latest ? latest.humidity : null,
+          battery: 100,
+          lastSeen: latest ? formatTimeAgo(latest.created_at) : 'Never'
+        };
       }));
     }
+
     table.innerHTML = `
       <thead>
         <tr>
           <th>Device ID</th><th>Name</th><th>Location</th>
-          <th>Status</th><th>Last Seen</th><th>Actions</th>
+          <th>Status</th><th>AQI</th><th>Temp/Hum</th><th>Actions</th>
         </tr>
       </thead>
       <tbody>
@@ -1329,14 +1759,22 @@ async function loadDevices() {
             <td>${device.name}</td>
             <td>${device.location}</td>
             <td><span class="status-badge status-${device.status}">${device.status}</span></td>
-            <td style="font-size:11px;color:var(--text2);">${device.lastSeen || 'Never'}</td>
+            <td style="text-align:center;">
+              ${device.aqi !== null ? 
+                `<b style="color:${aqiColor(device.aqi)}; font-family:var(--mono); font-size:14px;">${device.aqi}</b>` : 
+                `<span style="color:var(--text3); font-size:11px;">No Data</span>`
+              }
+            </td>
+            <td style="font-size:11px;font-family:var(--mono);">
+              ${device.temp !== null ? device.temp.toFixed(1) + '°C' : '--'} / ${device.hum !== null ? device.hum.toFixed(0) + '%' : '--'}
+            </td>
             <td style="display:flex;gap:4px;">
               <button class="btn btn-success btn-sm" onclick="openDeviceDetail('${device.id}')">👁 View</button>
               <button class="btn btn-ghost btn-sm" onclick="editDevice('${device.id}')">Edit</button>
               <button class="btn btn-danger btn-sm" onclick="deleteDevice('${device.id}')">Delete</button>
             </td>
           </tr>
-        `).join('') : '<tr><td colspan="6" style="text-align:center;color:var(--text2);padding:20px;">No devices found. Add your first device!</td></tr>'}
+        `).join('') : '<tr><td colspan="7" style="text-align:center;padding:20px;">No devices found. Add your first device!</td></tr>'}
       </tbody>
     `;
     setTimeout(() => initDevicesMap(), 150);
@@ -1422,11 +1860,21 @@ async function loadSMSUsers() {
         <td><span class="status-badge status-${user.is_active ? 'online' : 'offline'}">${user.is_active ? 'Active' : 'Inactive'}</span></td>
         <td style="font-size:11px;color:var(--text2);">${user.last_alert ? formatTimeAgo(user.last_alert) : 'Never'}</td>
         <td>
-          <button class="btn btn-ghost btn-sm" onclick="testSMSToUser('${user.phone_number}')">📤 Test</button>
+          <button class="btn btn-primary btn-sm" onclick="triggerManualSMS('${user.phone_number}', '${user.name}')">📤 Broadcast</button>
           <button class="btn btn-danger btn-sm" onclick="deleteSMSUser('${user.id}')">Delete</button>
         </td>
       </tr>
     `).join('');
+
+    // Initialize Toggle State
+    const autoSms = localStorage.getItem('auto_sms_enabled') === 'false' ? false : true;
+    const toggleEl = document.getElementById('global-auto-sms');
+    const labelEl = document.getElementById('auto-sms-status-label');
+    if (toggleEl) toggleEl.checked = autoSms;
+    if (labelEl) {
+      labelEl.textContent = `Auto-Broadcast: ${autoSms ? 'ON' : 'OFF'}`;
+      labelEl.style.color = autoSms ? 'var(--green)' : 'var(--text3)';
+    }
   } catch (error) {
     console.error('Error loading SMS users:', error);
     tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--red);padding:20px;">Error loading SMS subscribers</td></tr>';
@@ -1438,10 +1886,17 @@ async function saveSMSUser() {
   const phone = document.getElementById('sms-user-phone')?.value.trim();
   const email = document.getElementById('sms-user-email')?.value.trim();
   const deviceId = document.getElementById('sms-user-device')?.value;
-  const threshold = parseInt(document.getElementById('sms-user-threshold')?.value) || 100;
+  let threshold = parseInt(document.getElementById('sms-user-threshold')?.value);
+  if (isNaN(threshold) || threshold < 1) threshold = 100; // Force default if empty or invalid
   const phoneRegex = /^\+63[0-9]{10}$/;
-  if (!phoneRegex.test(phone)) { alert('Please enter a valid Philippine phone number in format: +63XXXXXXXXXX'); return; }
-  if (!name) { alert('Please enter a name'); return; }
+  if (!phoneRegex.test(phone)) { 
+    showDashboardToast('error', 'Invalid Phone', 'Please enter a valid Philippine phone number: +63XXXXXXXXXX');
+    return; 
+  }
+  if (!name) { 
+    showDashboardToast('error', 'Missing Name', 'Please enter a name for the subscriber.');
+    return; 
+  }
   const userData = { name, phone_number: phone, email: email || null, device_id: deviceId, aqi_threshold: threshold, is_active: true };
   try {
     await Database.registerSMSUser(userData);
@@ -1451,39 +1906,87 @@ async function saveSMSUser() {
     document.getElementById('sms-user-phone').value = '';
     document.getElementById('sms-user-email').value = '';
     loadSMSUsers();
-    alert('✅ User registered successfully for SMS alerts!');
+    logRoleActivity('admin', 'success', `Registered SMS subscriber: ${name} (${phone})`, 'user');
+    showDashboardToast('success', 'Subscriber Registered', `User ${name} has been successfully registered for SMS alerts.`);
   } catch (error) {
     console.error('Error registering SMS user:', error);
-    alert('❌ Error registering user: ' + error.message);
+    showDashboardToast('error', 'Registration Failed', error.message);
   }
 }
 
 async function deleteSMSUser(userId) {
-  if (!confirm('Are you sure you want to delete this SMS subscriber?')) return;
-  try {
-    const success = await Database.deleteSMSUser(userId);
-    if (success) {
-      console.log('✅ SMS user deleted');
-      loadSMSUsers();
-      alert('✅ SMS subscriber deleted successfully!');
-    } else {
-      throw new Error('Delete failed');
+  showConfirmModal('Delete Subscriber', 'Are you sure you want to remove this SMS subscriber? They will no longer receive environmental alerts.', async () => {
+    try {
+      const success = await Database.deleteSMSUser(userId);
+      if (success) {
+        console.log('✅ SMS user deleted');
+        loadSMSUsers();
+        logRoleActivity('admin', 'warn', `Removed SMS subscriber (ID: ${userId})`, 'user');
+        showDashboardToast('success', 'Subscriber Removed', 'The SMS subscriber has been successfully removed.');
+      } else {
+        throw new Error('Delete failed');
+      }
+    } catch (error) {
+      console.error('Error deleting SMS user:', error);
+      showDashboardToast('error', 'Delete Failed', 'Unable to remove the SMS subscriber.');
     }
-  } catch (error) {
-    console.error('Error deleting SMS user:', error);
-    alert('❌ Error deleting SMS subscriber');
+  });
+}
+
+function toggleAutoSMS() {
+  const toggle = document.getElementById('global-auto-sms');
+  const label = document.getElementById('auto-sms-status-label');
+  const isEnabled = toggle?.checked;
+  
+  localStorage.setItem('auto_sms_enabled', isEnabled);
+  
+  if (label) {
+    label.textContent = `Auto-Broadcast: ${isEnabled ? 'ON' : 'OFF'}`;
+    label.style.color = isEnabled ? 'var(--green)' : 'var(--text3)';
   }
+
+  const msg = isEnabled ? 'Automatic SMS broadcasts ENABLED' : 'Automatic SMS broadcasts DISABLED';
+  const type = isEnabled ? 'success' : 'warn';
+  logRoleActivity('admin', type, msg, 'sms');
+  showDashboardToast(type, 'SMS Settings', msg);
+}
+
+async function triggerManualSMS(phone, name) {
+  showConfirmModal('Send Manual Alert', `Are you sure you want to send an immediate air quality advisory to ${name} (${phone})?`, async () => {
+    try {
+      const device = devices[0];
+      const aqi = device.aqi || 0;
+      const template = buildAlertContent(getAlertLevel(device), device);
+      const msg = `Manual Advisory: ${template.smsHeader}\n${template.smsBody}`;
+      
+      const success = await Database.logSMSNotification({
+        phone_number: phone,
+        message: msg,
+        aqi_value: aqi,
+        status: 'pending'
+      });
+
+      if (success) {
+        showDashboardToast('success', 'Alert Sent', `Manual advisory successfully queued for ${name}.`);
+        logRoleActivity('admin', 'info', `Manual SMS alert sent to ${name}`, 'sms');
+        loadSMSUsers();
+      }
+    } catch (e) {
+      console.error('Manual SMS failed:', e);
+      showDashboardToast('error', 'Send Failed', 'Could not queue the SMS notification.');
+    }
+  }, 'info');
 }
 
 async function testSMSToUser(phoneNumber) {
   const testMessage = `BreathSafe Test: This is a test SMS from your BreathSafe system. AQI monitoring is active. Reply STOP to unsubscribe.`;
   try {
     await Database.logSMSNotification({ phone_number: phoneNumber, message: testMessage, aqi_value: null, status: 'sent' });
-    console.log('📤 Test SMS sent to:', phoneNumber);
-    alert(`✅ Test SMS sent to ${phoneNumber}!\n\nNote: SMS will be sent by the Arduino SIM900 module when it checks the database.`);
+    console.log('📤 Test Broadcast sent to:', phoneNumber);
+    showConfirmModal('Broadcast Test Queued', `✅ Test advisory has been queued for ${phoneNumber}.\n\nNote: The ESP32 Gateway will broadcast this message once it syncs with the database.`, () => {}, 'success');
   } catch (error) {
     console.error('Error sending test SMS:', error);
-    alert('❌ Error sending test SMS');
+    showDashboardToast('error', 'Broadcast Failed', 'Unable to queue the test message.');
   }
 }
 
@@ -1492,15 +1995,18 @@ function saveSMSSettings() {
   const smsTemplate = document.getElementById('sms-template')?.value;
   const smsCooldown = document.getElementById('sms-cooldown')?.value;
   localStorage.setItem('smsSettings', JSON.stringify({ devicePhone, template: smsTemplate, cooldown: parseInt(smsCooldown) }));
-  console.log('✅ SMS settings saved');
-  logRoleActivity('management', 'success', 'Updated SMS notification settings');
-  alert('✅ SMS settings saved successfully!');
+  console.log('✅ Awareness settings saved');
+  logRoleActivity('admin', 'success', 'Updated Community Awareness & Public Alert settings');
+  showDashboardToast('success', 'Settings Saved', 'Awareness configurations updated successfully!');
 }
 
 function testSMS() {
   const devicePhone = document.getElementById('device-phone')?.value;
-  if (!devicePhone) { alert('❌ Please enter the device phone number first'); return; }
-  alert(`📤 Test SMS will be sent to ${devicePhone}\n\nNote: The Arduino SIM900 module will send this test message when it next checks for pending SMS notifications.`);
+  if (!devicePhone) { 
+    showDashboardToast('error', 'Missing Number', 'Please enter the gateway phone number first.'); 
+    return; 
+  }
+  showConfirmModal('Broadcast Test', `📤 A test advisory will be sent to the gateway at ${devicePhone}.\n\nNote: The ESP32 Gateway will broadcast this test message when it next checks for pending notifications.`, () => {}, 'info');
 }
 
 function logDatabaseActivity(type, message) {
@@ -1508,71 +2014,173 @@ function logDatabaseActivity(type, message) {
   if (databaseActivityLog.length > 50) databaseActivityLog = databaseActivityLog.slice(0, 50);
 }
 
-function logRoleActivity(actorRole, type, message) {
-  if (actorRole !== 'admin' && actorRole !== 'management') return;
-  roleActivityLog.unshift({ actorRole, type, msg: `[${actorRole.toUpperCase()}] ${message}`, time: 'Just now' });
+function logRoleActivity(actorRole, type, message, category = 'system') {
+  const actor = actorRole === 'admin' ? 'Administrator' : actorRole === 'management' ? 'Management' : 'System';
+  
+  // Push to local activity for immediate UI feedback
+  systemActivity.unshift({
+    type,
+    msg: message,
+    time: 'Just now',
+    category,
+    actor: actor
+  });
+  
+  if (systemActivity.length > 50) systemActivity.pop();
+  
+  // Also push to roleActivityLog for compatibility with other views if needed
+  roleActivityLog.unshift({ actorRole, type, msg: message, time: 'Just now' });
   if (roleActivityLog.length > 100) roleActivityLog = roleActivityLog.slice(0, 100);
+  
+  // Persist to database
+  Database.logActivity({ type, message, category, actor: actor });
 }
 
-function loadAlerts() {
-  console.log('🔄 Admin Alerts: Loading environmental and role activity alerts...');
+async function loadAlerts() {
+  console.log('🔄 Syncing System Alerts from Database...');
+  
+  const categoryFilter = currentAlertFilter || 'all';
+  const severityFilter = document.getElementById('severity-filter')?.value || 'all';
+  const sortOrder = document.getElementById('alert-sort')?.value || 'newest';
+
+  // 1. Fetch persistent activity logs from DB (fetch more to allow for client-side filtering)
+  const dbActivity = await Database.fetchActivity(100);
+  let allAlerts = (dbActivity || []).map(a => {
+    let cat = a.category || 'system';
+    
+    // HISTORICAL FIX: Re-route specific message types that might have been mis-categorized in the past
+    if (a.message && (a.message.includes('Broadcast Failure') || a.message.includes('queued for'))) {
+      cat = 'sms';
+    }
+
+    return {
+      id: a.id,
+      type: a.type,
+      msg: a.message,
+      time: Database.formatTimeAgo(a.created_at),
+      absTime: new Date(a.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      category: cat,
+      created_at: a.created_at
+    };
+  });
+
+  // 2. Local hardware alerts (only if category is all or hardware/environment)
   const device = devices[0];
-  const databaseAlerts = [];
-  const alertLevel = getAlertLevel(device);
-  if (alertLevel === 'danger' || alertLevel === 'high' || alertLevel === 'moderate') {
-    const template = buildAlertContent(alertLevel, device);
-    databaseAlerts.push({ type: getAlertTypeFromLevel(alertLevel), msg: template.toastMessage, time: device.lastSeen });
+  if (device && (categoryFilter === 'all' || categoryFilter === 'hardware' || categoryFilter === 'environment')) {
+    const alertLevel = getAlertLevel(device);
+    if (alertLevel !== 'normal') {
+      const template = buildAlertContent(alertLevel, device);
+      allAlerts.push({ 
+        type: getAlertTypeFromLevel(alertLevel), 
+        msg: template.toastMessage, 
+        time: device.lastSeen || 'Just now', 
+        category: 'environment',
+        created_at: new Date().toISOString() 
+      });
+    }
+    if (device.battery < 20) {
+      allAlerts.push({ 
+        type: 'warn', 
+        msg: `Arduino ${device.id}: Low battery (${device.battery}%)`, 
+        time: device.lastSeen || 'Just now', 
+        category: 'hardware',
+        created_at: new Date().toISOString()
+      });
+    }
   }
-  if (device.battery < 20) {
-    databaseAlerts.push({ type: 'warn', msg: `Arduino ${device.id}: Low battery (${device.battery}%)`, time: device.lastSeen });
+
+  // 3. Apply Category Filter
+  if (categoryFilter !== 'all') {
+    allAlerts = allAlerts.filter(a => {
+      if (categoryFilter === 'hardware') return a.category === 'hardware' || a.category === 'environment' || a.category === 'location';
+      if (categoryFilter === 'sms') return a.category === 'sms';
+      if (categoryFilter === 'user') return a.category === 'user' || a.category === 'device' || a.category === 'auth';
+      return a.category === categoryFilter;
+    });
   }
-  if (device.status === 'offline') {
-    databaseAlerts.push({ type: 'error', msg: `Arduino ${device.id}: Device offline`, time: device.lastSeen });
+
+  // 4. Apply Severity Filter
+  if (severityFilter !== 'all') {
+    allAlerts = allAlerts.filter(a => {
+      if (severityFilter === 'critical') return a.type === 'danger' || a.type === 'error';
+      if (severityFilter === 'warning') return a.type === 'warn';
+      if (severityFilter === 'info') return a.type === 'info' || a.type === 'success';
+      return true;
+    });
   }
-  if (databaseAlerts.length === 0) {
-    databaseAlerts.push({ type: 'success', msg: `Arduino ${device.id}: All systems normal`, time: device.lastSeen });
-  }
-  const roleAlerts = roleActivityLog.map(a => ({ type: a.type, msg: a.msg, time: a.time }));
-  const allAlerts = [...databaseAlerts, ...roleAlerts, ...adminAlerts].slice(0, 20);
+
+  // 5. Apply Sorting
+  allAlerts.sort((a, b) => {
+    const dateA = new Date(a.created_at);
+    const dateB = new Date(b.created_at);
+    return sortOrder === 'newest' ? dateB - dateA : dateA - dateB;
+  });
+
+  // Update Badge
   const badgeEl = document.getElementById('alert-nav-badge');
   if (badgeEl) {
-    const dangerAlerts = allAlerts.filter(a => a.type === 'danger' || a.type === 'error').length;
-    badgeEl.textContent = dangerAlerts;
+    const lastRead = localStorage.getItem('alerts_last_read');
+    const unreadCount = allAlerts.filter(a => (!lastRead || new Date(a.created_at) > new Date(lastRead)) && (a.type === 'danger' || a.type === 'warn' || a.type === 'error')).length;
+    badgeEl.textContent = unreadCount > 0 ? unreadCount : '';
+    badgeEl.style.display = unreadCount > 0 ? 'block' : 'none';
   }
+
+  // Update UI List
   const alertsContainer = document.getElementById('admin-alerts');
   if (alertsContainer) {
-    alertsContainer.innerHTML = allAlerts.length > 0 ? allAlerts.map(alert => `
-      <div class="alert-item alert-${alert.type}">
-        <span>${alert.msg}</span><span class="alert-time">${alert.time}</span>
-      </div>
-    `).join('') : '<p style="color:var(--text2);text-align:center;padding:20px;">No alerts recorded</p>';
+    const lastRead = localStorage.getItem('alerts_last_read');
+    alertsContainer.innerHTML = allAlerts.length > 0 ? allAlerts.map(alert => {
+      const isUnread = !lastRead || (alert.created_at && new Date(alert.created_at) > new Date(lastRead));
+      
+      // Map technical category to human-readable label
+      let displayCat = 'System';
+      if (['hardware', 'environment', 'location'].includes(alert.category)) displayCat = 'Device';
+      if (['sms'].includes(alert.category)) displayCat = 'Broadcast';
+      if (['user', 'device', 'auth'].includes(alert.category)) displayCat = 'Admin';
+
+      return `
+        <div class="alert-item alert-${alert.type}" style="${isUnread ? 'border-left: 3px solid var(--accent);' : 'opacity: 0.8;'}">
+          <div style="display:flex; flex-direction:column; width:100%; gap:4px;">
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+              <span style="font-weight:${isUnread ? '700' : '600'};">${alert.msg} ${isUnread ? '<span style="color:var(--accent); font-size:8px; vertical-align:middle;">●</span>' : ''}</span>
+              <span class="cat-badge" style="background:rgba(255,255,255,0.1); color:var(--text2);">${displayCat}</span>
+            </div>
+            <div style="display:flex; justify-content:space-between; align-items:center; font-family:var(--mono); font-size:10px;">
+              <span style="color:var(--text2);">${alert.time}</span>
+              <span style="opacity:0.6;">${alert.absTime || 'Just now'}</span>
+            </div>
+          </div>
+        </div>
+      `;
+    }).join('') : `<div style="text-align:center;padding:60px 20px;color:var(--text3);">
+        <div style="font-size:40px;margin-bottom:12px;opacity:0.3;">📂</div>
+        <p>No ${categoryFilter !== 'all' ? categoryFilter : ''} alerts found for the current filters.</p>
+      </div>`;
   }
 }
 
-function clearAlerts() {
-  adminAlerts = [];
-  roleActivityLog = [];
-  const alertsEl = document.getElementById('admin-alerts');
-  if (alertsEl) alertsEl.innerHTML = '<p style="color:var(--text2);text-align:center;padding:20px;">No alerts recorded</p>';
-  const badgeEl = document.getElementById('alert-nav-badge');
-  if (badgeEl) badgeEl.textContent = '0';
-  systemActivity.unshift({ type: 'info', msg: 'Alerts cleared by administrator', time: 'Just now' });
-  logRoleActivity('admin', 'info', 'Cleared alert history');
-  showDashboardToast('success', 'Alerts Cleared', 'Alert history has been cleared successfully.');
+function setAlertFilter(category, btn) {
+  currentAlertFilter = category;
+  
+  // Update Tab UI
+  if (btn && btn.parentElement) {
+    btn.parentElement.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+  }
+  
+  loadAlerts();
 }
 
-function showClearAlertsModal() {
-  showModal('clear-alerts-modal');
+function markAlertsAsRead() {
+  localStorage.setItem('alerts_last_read', new Date().toISOString());
+  loadAlerts();
+  showDashboardToast('info', 'Alerts Read', 'All notifications have been marked as read.');
 }
 
-function cancelClearAlerts() {
-  closeModal('clear-alerts-modal');
-  showDashboardToast('info', 'Clear Cancelled', 'Alert history was not cleared.');
-}
-
-function confirmClearAlerts() {
-  closeModal('clear-alerts-modal');
-  clearAlerts();
+function showMarkReadModal() {
+  showConfirmModal('Mark as Read', 'Do you want to mark all recent alerts as read? This will reset the notification count.', () => {
+    markAlertsAsRead();
+  }, 'info');
 }
 
 function showModal(modalId) {
@@ -1580,10 +2188,56 @@ function showModal(modalId) {
   if (modal) {
     modal.classList.add('open');
     if (modalId === 'device-modal') {
-      // Delay map initialization slightly to ensure modal is visible
       setTimeout(initModalMap, 200);
     }
   }
+}
+
+function showConfirmModal(title, message, onConfirm, type = 'danger') {
+  let modal = document.getElementById('confirm-action-modal');
+  if (!modal) {
+    const modalHtml = `
+      <div class="modal-bg" id="confirm-action-modal">
+        <div class="modal" style="width:400px; text-align:center;">
+          <div class="modal-head" style="justify-content:center; border-bottom:none; padding-bottom:0;">
+            <div id="confirm-icon" style="font-size:48px; margin-bottom:10px;">⚠️</div>
+          </div>
+          <div class="modal-body" style="padding-top:0;">
+            <h3 id="confirm-title" style="margin-bottom:12px; font-size:18px;">Confirm Action</h3>
+            <p id="confirm-message" style="font-size:13px; color:var(--text2); line-height:1.5;">Are you sure?</p>
+          </div>
+          <div class="modal-foot" style="justify-content:center; border-top:none; padding-top:0; padding-bottom:24px;">
+            <button class="btn btn-ghost" onclick="closeModal('confirm-action-modal')">Cancel</button>
+            <button class="btn btn-primary" id="confirm-submit-btn">Confirm</button>
+          </div>
+        </div>
+      </div>
+    `;
+    document.body.insertAdjacentHTML('beforeend', modalHtml);
+    modal = document.getElementById('confirm-action-modal');
+  }
+  
+  document.getElementById('confirm-title').textContent = title;
+  document.getElementById('confirm-message').textContent = message;
+  const submitBtn = document.getElementById('confirm-submit-btn');
+  
+  submitBtn.className = 'btn ' + (type === 'danger' ? 'btn-danger' : 'btn-primary');
+  submitBtn.textContent = title.split(' ')[0] || 'Confirm';
+  
+  const icon = document.getElementById('confirm-icon');
+  if (type === 'danger') icon.textContent = '⚠️';
+  else if (type === 'success') icon.textContent = '✅';
+  else icon.textContent = 'ℹ️';
+
+  const newSubmitBtn = submitBtn.cloneNode(true);
+  submitBtn.parentNode.replaceChild(newSubmitBtn, submitBtn);
+  
+  newSubmitBtn.onclick = () => {
+    closeModal('confirm-action-modal');
+    onConfirm();
+  };
+  
+  showModal('confirm-action-modal');
 }
 
 function initModalMap() {
@@ -1665,6 +2319,30 @@ async function detectLocation() {
 
 function closeModal(modalId) {
   document.getElementById(modalId)?.classList.remove('open');
+  if (modalId === 'device-detail-modal' && consoleInterval) {
+    clearInterval(consoleInterval);
+    consoleInterval = null;
+  }
+}
+
+let consoleInterval = null;
+async function refreshConsole(deviceId) {
+  const consoleEl = document.getElementById('dv-console');
+  if (!consoleEl) return;
+  try {
+    const response = await fetch(`${DB_CONFIG.url}/rest/v1/${DB_TABLES.activity}?category=eq.hardware&device_id=eq.${deviceId}&order=created_at.desc&limit=15`, {
+      headers: { 'apikey': DB_CONFIG.anonKey, 'Authorization': `Bearer ${DB_CONFIG.anonKey}` }
+    });
+    const logs = await response.json();
+    if (logs && logs.length > 0) {
+      consoleEl.innerHTML = logs.reverse().map(l => {
+        const time = new Date(l.created_at).toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        const prefix = l.type === 'danger' ? '[ERR]' : l.type === 'warn' ? '[WRN]' : l.type === 'success' ? '[OK ]' : '[INF]';
+        return `<span style="opacity:0.5;">[${time}]</span> ${prefix} ${l.message}`;
+      }).join('\n');
+      consoleEl.scrollTop = consoleEl.scrollHeight;
+    }
+  } catch (e) { console.warn('Console sync fail'); }
 }
 
 function showAddUserModal() {
@@ -1690,6 +2368,8 @@ function showAddDeviceModal() {
   }
   document.getElementById('device-name').value = '';
   document.getElementById('device-id').value = '';
+  document.getElementById('device-id').disabled = false;
+  document.getElementById('device-id').style.opacity = '1';
   document.getElementById('device-location').value = '';
   document.getElementById('device-lat').value = '8.4542';
   document.getElementById('device-lng').value = '124.6319';
@@ -1702,40 +2382,43 @@ async function saveUser() {
   const role = document.getElementById('user-role')?.value;
   const dept = document.getElementById('user-dept')?.value;
   const phone = document.getElementById('user-phone')?.value || '';
-  if (!name || !email) { alert('Please fill in all required fields'); return; }
-  
-  try {
-    const userData = {
-      name,
-      email,
-      role,
-      dept,
-      status: 'active',
-      phone_number: phone
-    };
-
-    if (currentEditingUserId) {
-      // UPDATE EXISTING
-      await Database.updateSystemUser(currentEditingUserId, userData);
-      systemActivity.unshift({ type: 'info', msg: `User updated: ${name}`, time: 'Just now' });
-      logRoleActivity('admin', 'info', `Updated user ${currentEditingUserId}`);
-      alert('✅ User updated successfully!');
-    } else {
-      // CREATE NEW
-      userData.user_id = `USR-${String(Date.now()).slice(-3)}${Math.floor(Math.random() * 10)}`; 
-      await Database.createSystemUser(userData);
-      systemActivity.unshift({ type: 'success', msg: `New user added: ${name}`, time: 'Just now' });
-      logRoleActivity('admin', 'success', `Added user ${name} (${role})`);
-      alert('✅ User created successfully!');
-    }
-
-    closeModal('user-modal');
-    await loadUsers();
-    loadOverview();
-  } catch (error) {
-    console.error('Error saving user:', error);
-    alert('❌ Error: ' + error.message);
+  const threshold = parseInt(document.getElementById('user-aqi-threshold')?.value) || 100;
+  const smsEnabled = document.getElementById('user-sms-enabled')?.checked || false;
+  if (!name || !email) { 
+    showDashboardToast('error', 'Missing Information', 'Please fill in the name and email fields.');
+    return; 
   }
+  
+  const action = currentEditingUserId ? 'Update' : 'Create';
+  showConfirmModal(`${action} User`, `Are you sure you want to ${action.toLowerCase()} this user account for ${name}?`, async () => {
+    try {
+      const userData = { 
+        name, email, role, dept, 
+        status: 'active', 
+        phone_number: phone,
+        aqi_threshold: threshold,
+        sms_enabled: smsEnabled
+      };
+
+      if (currentEditingUserId) {
+        await Database.updateSystemUser(currentEditingUserId, userData);
+        logRoleActivity('admin', 'info', `Updated user details for ${name} (${role})`, 'user');
+        showDashboardToast('success', 'User Updated', `Account for ${name} has been updated successfully.`);
+      } else {
+        userData.user_id = `USR-${String(Date.now()).slice(-3)}${Math.floor(Math.random() * 10)}`; 
+        await Database.createSystemUser(userData);
+        logRoleActivity('admin', 'success', `Created new system user: ${name} as ${role}`, 'user');
+        showDashboardToast('success', 'User Created', `New ${role} account for ${name} has been created.`);
+      }
+
+      closeModal('user-modal');
+      await loadUsers();
+      loadOverview();
+    } catch (error) {
+      console.error('Error saving user:', error);
+      showDashboardToast('error', 'Save Failed', error.message);
+    }
+  }, 'success');
 }
 
 async function saveDevice() {
@@ -1745,32 +2428,43 @@ async function saveDevice() {
   const lat = parseFloat(document.getElementById('device-lat')?.value) || 8.4542;
   const lng = parseFloat(document.getElementById('device-lng')?.value) || 124.6319;
   
-  if (!name || !id || !location) { alert('Please fill in all required fields'); return; }
-  
-  try {
-    const deviceData = { device_id: id, name, location, latitude: lat, longitude: lng, status: 'active' };
-    
-    if (currentEditingDeviceId) {
-      // UPDATE EXISTING
-      await Database.updateDevice(currentEditingDeviceId, deviceData);
-      systemActivity.unshift({ type: 'info', msg: `Device updated: ${id}`, time: 'Just now' });
-      logRoleActivity('admin', 'info', `Updated device config for ${id}`);
-      alert('✅ Device updated successfully!');
-    } else {
-      // CREATE NEW
-      await Database.createDevice(deviceData);
-      systemActivity.unshift({ type: 'success', msg: `New device registered: ${id}`, time: 'Just now' });
-      logRoleActivity('admin', 'success', `Registered device ${id} at ${location}`);
-      alert('✅ Device registered successfully!');
-    }
-
-    closeModal('device-modal');
-    await loadDevices();
-    loadOverview();
-  } catch (error) {
-    console.error('Error saving device:', error);
-    alert('❌ Error: ' + error.message);
+  if (!name || !id || !location) { 
+    showDashboardToast('error', 'Missing Information', 'Please fill in all device details.');
+    return; 
   }
+  
+  const action = currentEditingDeviceId ? 'Update' : 'Register';
+  showConfirmModal(`${action} Device`, `Are you sure you want to ${action.toLowerCase()} device ${id}?`, async () => {
+    try {
+      const deviceData = { device_id: id, name, location, latitude: lat, longitude: lng, status: 'active' };
+      
+      if (currentEditingDeviceId) {
+        const oldDev = devices.find(d => d.id === currentEditingDeviceId);
+        const isLocChange = oldDev && (Math.abs(oldDev.lat - lat) > 0.0001 || Math.abs(oldDev.lng - lng) > 0.0001);
+        
+        await Database.updateDevice(currentEditingDeviceId, deviceData);
+        
+        if (isLocChange) {
+          logRoleActivity('admin', 'warn', `Location changed for device ${id}: ${lat}, ${lng}`, 'location');
+          showDashboardToast('info', 'Location Updated', `Device ${id} coordinates updated via Admin dashboard.`);
+        } else {
+          logRoleActivity('admin', 'info', `Updated device config for ${id}`, 'device');
+          showDashboardToast('success', 'Device Updated', `Configuration for ${id} has been successfully updated.`);
+        }
+      } else {
+        await Database.createDevice(deviceData);
+        logRoleActivity('admin', 'success', `Registered new device: ${id} at ${location}`, 'device');
+        showDashboardToast('success', 'Device Registered', `New device ${id} has been registered at ${location}.`);
+      }
+
+      closeModal('device-modal');
+      await loadDevices();
+      loadOverview();
+    } catch (error) {
+      console.error('Error saving device:', error);
+      showDashboardToast('error', 'Save Failed', error.message);
+    }
+  }, 'success');
 }
 
 function saveSettings() {
@@ -1797,24 +2491,24 @@ function saveThresholds() {
 
 
 async function deleteDevice(deviceId) {
-  if (!confirm('Are you sure you want to delete this device?')) return;
-  try {
-    const dbDevices = await Database.getDevices();
-    const dbDevice = dbDevices.find(d => d.device_id === deviceId);
-    if (dbDevice) {
-      const success = await Database.deleteDevice(dbDevice.id);
-      if (!success) throw new Error('Failed to delete from database');
+  showConfirmModal('Delete Device', `Are you sure you want to permanently delete device ${deviceId}? All associated history for this node will be unlinked.`, async () => {
+    try {
+      const dbDevices = await Database.getDevices();
+      const dbDevice = dbDevices.find(d => d.device_id === deviceId);
+      if (dbDevice) {
+        const success = await Database.deleteDevice(dbDevice.id);
+        if (!success) throw new Error('Failed to delete from database');
+      }
+      devices = devices.filter(d => d.id !== deviceId);
+      logRoleActivity('admin', 'warn', `Permanently removed device ${deviceId} from system`, 'device');
+      await loadDevices();
+      loadOverview();
+      showDashboardToast('success', 'Device Deleted', `Device ${deviceId} has been removed from the network.`);
+    } catch (error) {
+      console.error('Error deleting device:', error);
+      showDashboardToast('error', 'Delete Failed', error.message);
     }
-    devices = devices.filter(d => d.id !== deviceId);
-    systemActivity.unshift({ type: 'warn', msg: `Device deleted from database: ${deviceId}`, time: 'Just now' });
-    logRoleActivity('admin', 'warn', `Deleted device ${deviceId}`);
-    await loadDevices();
-    loadOverview();
-    alert('✅ Device deleted successfully from database!');
-  } catch (error) {
-    console.error('Error deleting device:', error);
-    alert('❌ Error deleting device: ' + error.message);
-  }
+  });
 }
 
 function editUser(id) {
@@ -1846,6 +2540,8 @@ function editDevice(id) {
     }
     document.getElementById('device-name').value = device.name;
     document.getElementById('device-id').value = device.id;
+    document.getElementById('device-id').disabled = true;
+    document.getElementById('device-id').style.opacity = '0.6';
     document.getElementById('device-location').value = device.location;
     document.getElementById('device-lat').value = device.lat;
     document.getElementById('device-lng').value = device.lng;
@@ -1862,26 +2558,26 @@ function editDeviceFromDetail() {
 }
 
 async function deleteUser(userId) {
-  if (!confirm('Are you sure you want to delete this user?')) return;
-  try {
-    const user = users.find(u => u.id === userId);
-    if (!user) { alert('User not found'); return; }
-    const dbUsers = await Database.getSystemUsers();
-    const dbUser = dbUsers.find(u => u.user_id === userId);
-    if (dbUser) {
-      const success = await Database.deleteSystemUser(dbUser.id);
-      if (!success) throw new Error('Failed to delete from database');
+  showConfirmModal('Delete User', `Are you sure you want to revoke system access for user ${userId}? This action cannot be undone.`, async () => {
+    try {
+      const user = users.find(u => u.id === userId);
+      if (!user) { showDashboardToast('error', 'Not Found', 'User record not found.'); return; }
+      const dbUsers = await Database.getSystemUsers();
+      const dbUser = dbUsers.find(u => u.user_id === userId);
+      if (dbUser) {
+        const success = await Database.deleteSystemUser(dbUser.id);
+        if (!success) throw new Error('Failed to delete from database');
+      }
+      users = users.filter(u => u.id !== userId);
+      logRoleActivity('admin', 'warn', `Revoked system access for user ${userId}`, 'user');
+      await loadUsers();
+      loadOverview();
+      showDashboardToast('success', 'User Deleted', `Access for ${userId} has been successfully revoked.`);
+    } catch (error) {
+      console.error('Error deleting user:', error);
+      showDashboardToast('error', 'Delete Failed', error.message);
     }
-    users = users.filter(u => u.id !== userId);
-    systemActivity.unshift({ type: 'warn', msg: `User deleted from database: ${userId}`, time: 'Just now' });
-    logRoleActivity('admin', 'warn', `Deleted user ${userId}`);
-    await loadUsers();
-    loadOverview();
-    alert('✅ User deleted successfully from database!');
-  } catch (error) {
-    console.error('Error deleting user:', error);
-    alert('❌ Error deleting user: ' + error.message);
-  }
+  });
 }
 
 function exportData() {
@@ -1891,18 +2587,20 @@ function exportData() {
 }
 
 function clearDatabase() {
-  if (confirm('⚠️ This will delete ALL air quality readings from the database. Are you sure?')) {
+  showConfirmModal('Clear Database', '⚠️ This will permanently delete ALL air quality readings from the database. This action is irreversible. Continue?', () => {
     Database.clearAllData().then(success => {
       if (success) {
         systemActivity.unshift({ type: 'warn', msg: 'Database cleared successfully', time: 'Just now' });
         logRoleActivity('admin', 'warn', 'Cleared all air quality records');
+        showDashboardToast('success', 'Database Cleared', 'All sensor data has been purged from the system.');
       } else {
         systemActivity.unshift({ type: 'error', msg: 'Failed to clear database', time: 'Just now' });
         logRoleActivity('admin', 'error', 'Attempted database clear but failed');
+        showDashboardToast('error', 'Purge Failed', 'System was unable to clear the sensor database.');
       }
       loadOverview();
     });
-  }
+  }, 'danger');
 }
 
 function logout() {
@@ -1912,6 +2610,11 @@ function logout() {
 }
 
 async function checkAndTriggerSMSNotifications(currentAQI) {
+  const autoSms = localStorage.getItem('auto_sms_enabled') === 'false' ? false : true;
+  if (!autoSms) {
+    console.log('🔇 Auto-SMS disabled by admin toggle. Skipping broadcast.');
+    return;
+  }
   try {
     const users = await Database.getNotificationUsers();
     const smsSettings = JSON.parse(localStorage.getItem('smsSettings') || '{}');
@@ -1930,7 +2633,7 @@ async function checkAndTriggerSMSNotifications(currentAQI) {
           trackUserStat(activeSessionUserId, 'smsSent', 1);
           await Database.updateUserLastAlert(user.id);
           console.log(`📤 SMS notification queued for ${user.name} (${user.phone_number}): ${level.toUpperCase()} alert`);
-          logDatabaseActivity('warn', `SMS ${level} alert queued for ${user.name}`);
+          logRoleActivity('system', 'warn', `Broadcast: ${level.toUpperCase()} alert queued for ${user.name} (${user.phone_number})`, 'sms');
         } else {
           console.log(`⏳ SMS cooldown active for ${user.name} - skipping`);
         }
@@ -1938,6 +2641,54 @@ async function checkAndTriggerSMSNotifications(currentAQI) {
     }
   } catch (error) {
     console.error('Error checking SMS notifications:', error);
+  }
+}
+
+async function checkStaleSMS() {
+  try {
+    const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+    
+    // Fetch pending SMS created more than 5 minutes ago
+    const response = await fetch(`${DB_CONFIG.url}/rest/v1/${DB_TABLES.smsNotifications}?status=eq.pending&created_at=lt.${fiveMinutesAgo}`, {
+      headers: { 'apikey': DB_CONFIG.anonKey, 'Authorization': `Bearer ${DB_CONFIG.anonKey}` }
+    });
+    
+    const staleSMS = await response.json();
+    if (staleSMS && staleSMS.length > 0) {
+      for (const sms of staleSMS) {
+        // 1. Update status to failed in DB
+        await fetch(`${DB_CONFIG.url}/rest/v1/${DB_TABLES.smsNotifications}?id=eq.${sms.id}`, {
+          method: 'PATCH',
+          headers: { 
+            'apikey': DB_CONFIG.anonKey, 
+            'Authorization': `Bearer ${DB_CONFIG.anonKey}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ 
+            status: 'failed', 
+            error_message: 'Gateway Timeout: GSM module failed to broadcast within 5 minutes' 
+          })
+        });
+
+        // Only log activity and show toasts if the system is actually online
+        // If we're already offline, we don't need to be told again that broadcasts are failing
+        if (!window.isSystemOffline) {
+          // 2. Log system alert
+          logRoleActivity('system', 'danger', `Broadcast Failure: Awareness advisory to ${sms.phone_number} timed out. Gateway offline?`, 'sms');
+          
+          // 3. Show Toast for Admin Awareness
+          showDashboardToast('error', 'Awareness Alert Failed', `The GSM gateway failed to send an advisory to ${sms.phone_number}. Please check hardware connectivity.`);
+        }
+      }
+      
+      // Refresh alerts list if we are on the alerts page
+      if (document.body.dataset.page === 'alerts') {
+        console.log('🔄 SMS Fallback: Refreshing Alert Page...');
+        loadAlerts();
+      }
+    }
+  } catch (error) {
+    console.error('Error cleaning up stale SMS:', error);
   }
 }
 
@@ -1950,34 +2701,83 @@ function initializeAdmin() {
   if (page === 'alerts') loadAlerts();
   if (page === 'reports') loadReports();
   if (page === 'users') loadUsers();
-  if (page === 'settings') {
+      if (page === 'settings') {
     const settings = JSON.parse(localStorage.getItem('smsSettings') || '{}');
     if (settings.devicePhone) document.getElementById('device-phone').value = settings.devicePhone;
     if (settings.template) document.getElementById('sms-template').value = settings.template;
     if (settings.cooldown) document.getElementById('sms-cooldown').value = settings.cooldown;
   }
+
   setInterval(async () => {
-    console.log('🔄 Admin Dashboard: Refreshing Arduino data...');
+    console.log('🔄 Admin Dashboard: Refreshing ESP32 data...');
     const readings = await Database.fetchLatestReadings(1);
+    
     if (readings && readings.length > 0) {
       const latest = readings[0];
-      devices[0] = { ...devices[0], aqi: latest.aqi_value || 0, temp: latest.temperature || 0, hum: latest.humidity || 0, co2: Math.round((latest.mq135_raw || 0) * 0.12), battery: 85 + Math.random() * 15, lastSeen: Database.formatTimeAgo ? Database.formatTimeAgo(latest.created_at) : 'Just now' };
+      const lastSeenDate = new Date(latest.created_at);
+      const now = new Date();
+      const diffSeconds = (now - lastSeenDate) / 1000;
+      
+      const statusEl = document.getElementById('summary-status');
+      const dataSourceEl = document.getElementById('summary-data-source');
+      
+      let wasOffline = window.isSystemOffline;
+      // Faster Disconnect Detection: 90 seconds (3 missed packets)
+      if (diffSeconds > 90) {
+        if (statusEl) statusEl.innerHTML = `<span style="color:var(--red);">🔴 System Offline (Since ${lastSeenDate.toLocaleTimeString()})</span>`;
+        if (dataSourceEl) dataSourceEl.textContent = `Last active: ${formatTimeAgo(latest.created_at)}`;
+        window.isSystemOffline = true;
+      } else {
+        if (statusEl) statusEl.innerHTML = `<span style="color:var(--green);">🟢 System Online (Active)</span>`;
+        if (dataSourceEl) dataSourceEl.textContent = `ESP32 ID: ${latest.device_id || 'AW-001'}`;
+        window.isSystemOffline = false;
+      }
+
+      if (wasOffline !== window.isSystemOffline) {
+        const devId = latest.device_id || 'AW-001';
+        const stateMsg = window.isSystemOffline ? `CRITICAL: ESP32 Gateway (${devId}) Disconnected` : `System Restored: ESP32 Gateway (${devId}) Online`;
+        const stateType = window.isSystemOffline ? 'danger' : 'success';
+        const statusVal = window.isSystemOffline ? 'offline' : 'online';
+        
+        systemActivity.unshift({ type: stateType, msg: stateMsg, time: new Date().toLocaleTimeString() });
+        logRoleActivity('system', stateType, stateMsg, 'hardware');
+        
+        // Persist status change to Database
+        Database.updateDeviceStatus(devId, statusVal);
+        
+        if (window.isSystemOffline) {
+          showDashboardToast('error', 'Connectivity Lost', `The campus air quality sensor (${devId}) has gone offline. Alerts are suppressed until connection is restored.`);
+        } else {
+          showDashboardToast('success', 'Connection Restored', `Sensor link established for ${devId}. Real-time monitoring resumed.`);
+        }
+      }
+
+      devices[0] = { ...devices[0], aqi: latest.aqi_value || 0, temp: latest.temperature || 0, hum: latest.humidity || 0, lastSeen: formatTimeAgo(latest.created_at) };
       
       systemActivity.unshift({ type: 'info', msg: `Background sync: Database polling successful`, time: new Date().toLocaleTimeString() });
-      if (systemActivity.length > 50) systemActivity = systemActivity.slice(0, 50);
-
-      if (document.body.dataset.page === 'overview') loadOverview();
-      if (document.body.dataset.page === 'devices') loadDevices();
-      if (document.body.dataset.page === 'alerts') loadAlerts();
+      if (systemActivity.length > 10) systemActivity.pop();
+      
+      if (document.body.dataset.page === 'overview') {
+        loadOverview();
+      }
       if (document.body.dataset.page === 'reports') loadReports();
       if (document.getElementById('summary-last-update')) document.getElementById('summary-last-update').textContent = new Date().toLocaleTimeString();
-      await checkAndTriggerSMSNotifications(devices[0].aqi);
-      const currentLevel = getAlertLevel(devices[0]);
-      if (currentLevel !== lastToastAlertLevel) {
-        const toastTemplate = buildAlertContent(currentLevel, devices[0]);
-        showDashboardToast(toastTemplate.toastType, toastTemplate.toastTitle, toastTemplate.toastMessage);
-        lastToastAlertLevel = currentLevel;
+      
+      // Only trigger alerts and toasts if the system is currently online (fresh data)
+      if (!window.isSystemOffline) {
+        await checkAndTriggerSMSNotifications(devices[0].aqi);
+        
+        const currentLevel = getAlertLevel(devices[0]);
+        if (currentLevel !== lastToastAlertLevel) {
+          const toastTemplate = buildAlertContent(currentLevel, devices[0]);
+          if (currentLevel !== 'normal') showDashboardToast(toastTemplate.toastType, toastTemplate.toastTitle, toastTemplate.toastMessage);
+          lastToastAlertLevel = currentLevel;
+        }
+      } else {
+        console.log('🔇 System Offline: Alert and Toast suppression active.');
       }
+      
+      await checkStaleSMS(); 
     } else {
       console.warn('⚠️ No database connection, generating offline data');
       const offlineData = generateOfflineData();

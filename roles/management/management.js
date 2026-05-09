@@ -15,7 +15,8 @@ const DB_TABLES = window.CONFIG?.tables || {
   notificationUsers: 'notification_users',
   smsNotifications: 'sms_notifications',
   systemUsers: 'system_users',
-  hourlyStats: 'hourly_stats'
+  hourlyStats: 'hourly_stats',
+  activity: 'system_activity'
 };
 
 const Database = {
@@ -95,6 +96,44 @@ const Database = {
       console.error('Error fetching latest device location:', error);
       return null;
     }
+  },
+
+  async logActivity(activity) {
+    try {
+      await fetch(`${DB_CONFIG.url}/rest/v1/${DB_TABLES.activity}`, {
+        method: 'POST',
+        headers: {
+          'apikey': DB_CONFIG.anonKey,
+          'Authorization': `Bearer ${DB_CONFIG.anonKey}`,
+          'Content-Type': 'application/json',
+          'Prefer': 'return=minimal'
+        },
+        body: JSON.stringify({
+          ...activity,
+          actor: activity.actor || 'Manager'
+        })
+      });
+    } catch (error) {
+      console.error('Error logging activity:', error);
+    }
+  },
+
+  async fetchActivity(limit = 20) {
+    try {
+      const response = await fetch(
+        `${DB_CONFIG.url}/rest/v1/${DB_TABLES.activity}?order=created_at.desc&limit=${limit}`,
+        {
+          headers: {
+            'apikey': DB_CONFIG.anonKey,
+            'Authorization': `Bearer ${DB_CONFIG.anonKey}`
+          }
+        }
+      );
+      return response.ok ? await response.json() : [];
+    } catch (error) {
+      console.error('Error fetching activity:', error);
+      return [];
+    }
   }
 };
 
@@ -161,7 +200,9 @@ async function loadDashboard() {
       aqi: latest.aqi_value || 0,
       temp: latest.temperature || 0,
       hum: latest.humidity || 0,
-      co2: Math.round((latest.mq135_raw || 0) * 0.12),
+      co2: latest.co2_ppm ? Math.round(latest.co2_ppm) : Math.round((latest.mq135_raw || 0) * 0.12),
+      nh3: latest.nh3_ppm ? latest.nh3_ppm.toFixed(2) : '--',
+      benzene: latest.benzene_ppm ? latest.benzene_ppm.toFixed(3) : '--',
       lastSeen: 'Just now'
     };
   }
@@ -424,21 +465,95 @@ async function loadAnalytics() {
   }, 100);
 }
 
-function loadAlerts() {
-  document.getElementById('alert-list').innerHTML = alertLog.length > 0 ? alertLog.map(alert => `
-    <div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--border);">
-      <div style="width:8px;height:8px;border-radius:50%;background:${ alert.type === 'success' ? 'var(--green)' : alert.type === 'warn' ? 'var(--yellow)' : alert.type === 'error' ? 'var(--red)' : 'var(--accent)' }"></div>
-      <span style="flex:1;font-size:12px;">${alert.msg}</span>
-      <span style="font-size:11px;color:var(--text3);">${alert.time}</span>
+async function loadAlerts() {
+  const dbActivity = await Database.fetchActivity(15);
+  const alertsContainer = document.getElementById('alert-list');
+  if (!alertsContainer) return;
+
+  const lastRead = localStorage.getItem('alerts_last_read_mgmt');
+  const allAlerts = (dbActivity || []).map(a => ({
+    type: a.type,
+    msg: a.message,
+    time: formatTimeAgo(a.created_at),
+    absTime: new Date(a.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+    isUnread: !lastRead || new Date(a.created_at) > new Date(lastRead),
+    category: a.category
+  }));
+
+  alertsContainer.innerHTML = allAlerts.length > 0 ? allAlerts.map(alert => `
+    <div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--border); ${alert.isUnread ? '' : 'opacity:0.6;'}">
+      <div style="width:8px;height:8px;border-radius:50%;background:${ 
+        alert.type === 'success' ? 'var(--green)' : 
+        alert.type === 'warn' ? 'var(--yellow)' : 
+        alert.type === 'danger' || alert.type === 'error' ? 'var(--red)' : 
+        'var(--accent)' 
+      }; ${alert.isUnread ? '' : 'filter: grayscale(1); opacity: 0.5;'}"></div>
+      <div style="flex:1;">
+        <div style="font-size:13px;font-weight:${alert.isUnread ? '600' : '500'};">${alert.msg} ${alert.isUnread ? '<span style="color:var(--accent); font-size:14px; line-height:0; vertical-align:middle;">·</span>' : ''}</div>
+        <div style="display:flex;justify-content:space-between;align-items:center;font-size:10px;color:var(--text3);margin-top:2px;">
+          <span>${alert.time} • ${alert.category || 'System'}</span>
+          <span style="font-family:var(--mono);opacity:0.8;">${alert.absTime}</span>
+        </div>
+      </div>
     </div>
-  `).join('') : '<p style="color:var(--text2);text-align:center;padding:20px;">No alerts recorded</p>';
+  `).join('') : '<p style="text-align:center;padding:20px;color:var(--text3);">No recent activity</p>';
+  
+  updateAlertBadges(allAlerts.filter(a => a.isUnread && (a.type === 'danger' || a.type === 'error' || a.type === 'warn')).length);
 }
 
-function updateAlertBadges() {
-  const totalAlerts = devices.reduce((s, d) => s + d.alerts, 0);
-  const dangerAlerts = alertLog.filter(a => a.type === 'error' || a.type === 'warn').length;
-  document.getElementById('alert-badge').textContent = totalAlerts;
-  document.getElementById('danger-alert-badge').textContent = dangerAlerts;
+function updateAlertBadges(count) {
+  const badge = document.getElementById('alert-badge');
+  if (badge) {
+    badge.textContent = count > 0 ? count : '';
+    badge.style.display = count > 0 ? 'block' : 'none';
+  }
+}
+
+function showConfirmModal(title, message, onConfirm, type = 'danger') {
+  let modal = document.getElementById('confirm-action-modal');
+  if (!modal) {
+    const modalHtml = `
+      <div class="modal-bg" id="confirm-action-modal">
+        <div class="modal" style="width:400px; text-align:center;">
+          <div class="modal-head" style="justify-content:center; border-bottom:none; padding-bottom:0;">
+            <div id="confirm-icon" style="font-size:48px; margin-bottom:10px;">⚠️</div>
+          </div>
+          <div class="modal-body" style="padding-top:0;">
+            <h3 id="confirm-title" style="margin-bottom:12px; font-size:18px;">Confirm Action</h3>
+            <p id="confirm-message" style="font-size:13px; color:var(--text2); line-height:1.5;">Are you sure?</p>
+          </div>
+          <div class="modal-foot" style="justify-content:center; border-top:none; padding-top:0; padding-bottom:24px;">
+            <button class="btn btn-ghost" onclick="closeModal('confirm-action-modal')">Cancel</button>
+            <button class="btn btn-primary" id="confirm-submit-btn">Confirm</button>
+          </div>
+        </div>
+      </div>
+    `;
+    document.body.insertAdjacentHTML('beforeend', modalHtml);
+    modal = document.getElementById('confirm-action-modal');
+  }
+  
+  document.getElementById('confirm-title').textContent = title;
+  document.getElementById('confirm-message').textContent = message;
+  const submitBtn = document.getElementById('confirm-submit-btn');
+  
+  submitBtn.className = 'btn ' + (type === 'danger' ? 'btn-danger' : 'btn-primary');
+  submitBtn.textContent = title.split(' ')[0] || 'Confirm';
+  
+  const icon = document.getElementById('confirm-icon');
+  if (type === 'danger') icon.textContent = '⚠️';
+  else if (type === 'success') icon.textContent = '✅';
+  else icon.textContent = 'ℹ️';
+
+  const newSubmitBtn = submitBtn.cloneNode(true);
+  submitBtn.parentNode.replaceChild(newSubmitBtn, submitBtn);
+  
+  newSubmitBtn.onclick = () => {
+    closeModal('confirm-action-modal');
+    onConfirm();
+  };
+  
+  showModal('confirm-action-modal');
 }
 
 function showModal(modalId) {
@@ -555,54 +670,85 @@ function editDevice(id) {
   showModal('device-modal');
 }
 
-function deleteDevice(id) {
-  if (!confirm('Are you sure you want to delete this device?')) return;
-  devices = devices.filter(d => d.id !== id);
-  alertLog.unshift({ type:'warn', msg:`Device deleted: ${id}`, time:'Just now' });
-  loadDashboard();
-  loadAllDevices();
+async function deleteDevice(id) {
+  showConfirmModal('Delete Device', `Are you sure you want to remove device ${id}? This will disconnect it from the management dashboard.`, async () => {
+    try {
+      const dbDevices = await Database.getDevices();
+      const dbDev = dbDevices.find(d => d.device_id === id);
+      if (dbDev) {
+        await fetch(`${DB_CONFIG.url}/rest/v1/${DB_TABLES.devices}?id=eq.${dbDev.id}`, {
+          method: 'DELETE',
+          headers: { 'apikey': DB_CONFIG.anonKey, 'Authorization': `Bearer ${DB_CONFIG.anonKey}` }
+        });
+      }
+      devices = devices.filter(d => d.id !== id);
+      await Database.logActivity({ type: 'warn', message: `Device deleted: ${id}`, category: 'device', actor: 'Manager' });
+      loadDashboard();
+      loadAllDevices();
+    } catch (e) { 
+      console.error(e);
+      alert('Error deleting device: ' + e.message);
+    }
+  });
 }
 
-function saveDevice() {
+async function saveDevice() {
   const name = document.getElementById('device-name').value.trim();
   const id = document.getElementById('device-id').value.trim();
   const location = document.getElementById('device-location').value.trim();
   const lat = parseFloat(document.getElementById('device-lat').value) || 8.4542;
   const lng = parseFloat(document.getElementById('device-lng').value) || 124.6319;
   const status = document.getElementById('device-status').value;
-  const threshold = parseInt(document.getElementById('device-threshold').value) || 100;
+  
   if (!name || !id || !location) { alert('Please fill in all required fields'); return; }
-  const newDevice = { id, name, location, lat, lng, status, aqi: 0, co2: 0, temp: 0, hum: 0, nh3: 0, battery: 100, lastSeen:'Just now', threshold, alerts:0 };
-  const existingIndex = devices.findIndex(d => d.id === id);
-  if (existingIndex >= 0) {
-    devices[existingIndex] = newDevice;
-    alertLog.unshift({ type:'info', msg:`Device updated: ${name}`, time:'Just now' });
-  } else {
-    devices.push(newDevice);
-    alertLog.unshift({ type:'success', msg:`New device added: ${name}`, time:'Just now' });
-  }
-  closeModal('device-modal');
-  loadDashboard();
-  loadAllDevices();
-  document.getElementById('device-name').value = '';
-  document.getElementById('device-id').value = '';
-  document.getElementById('device-location').value = '';
-  document.getElementById('device-lat').value = '';
-  document.getElementById('device-lng').value = '';
-  document.getElementById('device-threshold').value = '100';
+
+  const action = devices.find(d => d.id === id) ? 'Update' : 'Register';
+  showConfirmModal(`${action} Device`, `Are you sure you want to ${action.toLowerCase()} device ${id}?`, async () => {
+    try {
+      const deviceData = { device_id: id, name, location, latitude: lat, longitude: lng, status };
+      const res = await fetch(`${DB_CONFIG.url}/rest/v1/${DB_TABLES.devices}?device_id=eq.${id}`, {
+        method: 'PATCH',
+        headers: { 
+          'apikey': DB_CONFIG.anonKey, 
+          'Authorization': `Bearer ${DB_CONFIG.anonKey}`, 
+          'Content-Type': 'application/json',
+          'Prefer': 'return=minimal' 
+        },
+        body: JSON.stringify(deviceData)
+      });
+
+      if (res.ok) {
+        const existingDev = devices.find(d => d.id === id);
+        const isLocChange = existingDev && (Math.abs(existingDev.lat - lat) > 0.0001 || Math.abs(existingDev.lng - lng) > 0.0001);
+        
+        if (isLocChange) {
+          await Database.logActivity({ type: 'warn', message: `Location change detected for ${id}: ${lat}, ${lng}`, category: 'location', actor: 'Manager' });
+        } else {
+          await Database.logActivity({ type: 'info', message: `Updated device settings for ${id}`, category: 'device', actor: 'Manager' });
+        }
+        closeModal('device-modal');
+        await loadAllDevices();
+        loadDashboard();
+      }
+    } catch (e) { 
+      console.error(e); 
+      alert('Error saving device: ' + e.message);
+    }
+  }, 'success');
 }
 
-function clearAlerts() {
-  if (!confirm('Clear all alerts from the log?')) return;
-  alertLog = [];
-  loadAlerts();
-  updateAlertBadges();
+function markAlertsAsRead() {
+  showConfirmModal('Mark as Read', 'Clear all unread notification badges?', () => {
+    localStorage.setItem('alerts_last_read_mgmt', new Date().toISOString());
+    loadAlerts();
+    updateAlertBadges(0);
+  }, 'info');
 }
 
 function logout() {
-  if (confirm('Are you sure you want to logout?')) {
+  showConfirmModal('Logout', 'Are you sure you want to end your session?', () => {
     window.location.href = '../../index.html';
-  }
+  }, 'info');
 }
 
 async function initializeManagement() {

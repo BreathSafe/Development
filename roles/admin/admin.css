@@ -156,6 +156,18 @@ body { min-height: 100vh; }
 .alert-success { background: rgba(34,197,94,.1);  border: 1px solid rgba(34,197,94,.2);  color: #86efac; }
 .alert-time { margin-left: auto; color: var(--text3); white-space: nowrap; padding-left: 8px; font-size: 10.5px; }
 
+/* Switch Toggle */
+.switch { position: relative; display: inline-block; width: 32px; height: 18px; }
+.switch input { opacity: 0; width: 0; height: 0; }
+.slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: var(--bg4); transition: .4s; border-radius: 34px; border: 1px solid var(--border2); }
+.slider:before { position: absolute; content: ""; height: 12px; width: 12px; left: 2px; bottom: 2px; background-color: var(--text3); transition: .4s; border-radius: 50%; }
+input:checked + .slider { background-color: var(--green); border-color: rgba(34,197,94,0.4); }
+input:checked + .slider:before { transform: translateX(14px); background-color: #fff; }
+
+/* Toast Animations */
+@keyframes toastSlideIn { from { transform: translateX(40px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+@keyframes toastProgress { from { transform: scaleX(1); } to { transform: scaleX(0); } }
+
 /* Responsive */
 @media (max-width: 768px) {
   .sidebar { display: none; }

@@ -31,6 +31,7 @@
 
 #include <WiFi.h>
 #include <HTTPClient.h>
+#include <WiFiClientSecure.h>
 #include <ArduinoJson.h>
 #include <DHT.h>
 
@@ -74,18 +75,22 @@ const char* DEVICE_ID = "AW-001";
 TinyGPSPlus gps;
 SoftwareSerial gpsSerial(GPS_RX_PIN, GPS_TX_PIN);
 
-float latitude  = 8.4542;   // Default/Fallback
-float longitude = 124.6319; // Default/Fallback
+// ── MQ135 Sensitivity Constants (from datasheet curves) ────
+// Formula: PPM = a * (Rs/Ro)^b
+const float MQ135_CO2_A     = 110.47, MQ135_CO2_B     = -2.862;
+const float MQ135_NH3_A     = 102.2,  MQ135_NH3_B     = -2.473;
+const float MQ135_BENZENE_A = 44.947, MQ135_BENZENE_B = -3.445;
+const float MQ135_ALCOHOL_A = 77.255, MQ135_ALCOHOL_B = -3.18;
+float Ro = 10.0; // Standard baseline resistance (kOhm) in clean air
 
-// ── Globals ───────────────────────────────────────────────
+// ── Global Variables ──────────────────────────────────────
 DHT dht(DHT_PIN, DHT_TYPE);
-
-float temperature   = 0;
-float humidity      = 0;
-int   mq135Raw      = 0;
-int   aqiValue      = 0;      
-String aqiCategory  = "Good";
-
+float temperature = 0, humidity = 0;
+int   mq135Raw    = 0;
+float co2Ppm = 0, nh3Ppm = 0, benzenePpm = 0, alcoholPpm = 0;
+int   aqiValue    = 0;
+String aqiCategory = "Good";
+double latitude   = 8.4542, longitude = 124.6319;
 unsigned long lastRead   = 0;
 unsigned long lastUpload = 0;
 
@@ -121,6 +126,7 @@ void setup() {
 
   // Connect WiFi
   connectWiFi();
+  logHardwareActivity("success", "System boot complete. Device " + String(DEVICE_ID) + " online.");
 }
 
 // ─────────────────────────────────────────────────────────
@@ -141,7 +147,6 @@ void loop() {
   if (now - lastRead >= READ_INTERVAL) {
     lastRead = now;
     readSensors();
-    updateLEDs();
     printSerial();
   }
 
@@ -153,37 +158,74 @@ void loop() {
   }
 }
 
+// ── Remote Logging to Dashboard ──────────────────────────
+void logHardwareActivity(String type, String message) {
+  if (WiFi.status() != WL_CONNECTED) return;
+  
+  WiFiClientSecure client;
+  client.setInsecure(); // Skip SSL certificate verification for Supabase
+  
+  HTTPClient http;
+  String endpoint = String(SUPABASE_URL) + "/rest/v1/system_activity";
+  
+  http.begin(client, endpoint);
+  http.addHeader("Content-Type", "application/json");
+  http.addHeader("apikey", SUPABASE_APIKEY);
+  http.addHeader("Authorization", String("Bearer ") + SUPABASE_APIKEY);
+  
+  StaticJsonDocument<256> doc;
+  doc["type"]      = type;      // info, success, warn, danger
+  doc["category"]  = "hardware";
+  doc["message"]   = message;
+  doc["actor"]     = DEVICE_ID;
+  doc["device_id"] = DEVICE_ID;
+  
+  String body;
+  serializeJson(doc, body);
+  int code = http.POST(body);
+  http.end();
+}
+
+// ── Gas Concentration Calculations ──────────────────────
+float getRs(int rawAdc) {
+  float vOut = rawAdc * (3.3 / 4095.0);
+  float rs = (3.3 - vOut) / vOut * 10.0; // 10k load resistor
+  return rs;
+}
+
+float calculatePPM(float rs_ro, float a, float b) {
+  return a * pow(rs_ro, b);
+}
+
 // ─────────────────────────────────────────────────────────
 void readSensors() {
   // DHT11
-  float h = dht.readHumidity();
   float t = dht.readTemperature();
-  if (!isnan(h) && !isnan(t)) {
-    humidity    = h;
-    temperature = t;
-  } else {
-    Serial.println("⚠️  DHT11 read failed — keeping last values.");
-  }
+  float h = dht.readHumidity();
+  if (!isnan(t)) temperature = t;
+  if (!isnan(h)) humidity = h;
 
-  // MQ135 — average 10 samples to reduce noise
-  long sum = 0;
-  for (int i = 0; i < 10; i++) {
-    sum += analogRead(MQ135_PIN);
-    delay(5);
-  }
-  mq135Raw = sum / 10;
+  // MQ135
+  mq135Raw = analogRead(MQ135_PIN);
+  
+  // Calculate specific gas concentrations
+  float rs = getRs(mq135Raw);
+  float ratio = rs / Ro;
+  
+  co2Ppm     = calculatePPM(ratio, MQ135_CO2_A, MQ135_CO2_B) + 400; // +400 for atmospheric baseline
+  nh3Ppm     = calculatePPM(ratio, MQ135_NH3_A, MQ135_NH3_B);
+  benzenePpm = calculatePPM(ratio, MQ135_BENZENE_A, MQ135_BENZENE_B);
+  alcoholPpm = calculatePPM(ratio, MQ135_ALCOHOL_A, MQ135_ALCOHOL_B);
 
-  // Map raw ADC (0–4095) to simplified AQI (0–500)
-  aqiValue = map(mq135Raw, 0, 4095, 0, 500);
-
-  // Categorise
-  if (mq135Raw <= AQI_GOOD_MAX) {
-    aqiCategory = "Good";
-  } else if (mq135Raw <= AQI_MODERATE_MAX) {
-    aqiCategory = "Moderate";
-  } else {
-    aqiCategory = "Unhealthy";
-  }
+  // Map to AQI (Calibrated for lower sensitivity)
+  aqiValue = map(mq135Raw, 150, 2500, 0, 300);
+  if (aqiValue < 0) aqiValue = 0;
+  
+  if (aqiValue <= AQI_GOOD_MAX) aqiCategory = "Good";
+  else if (aqiValue <= AQI_MODERATE_MAX) aqiCategory = "Moderate";
+  else aqiCategory = "Unhealthy";
+  
+  updateLEDs();
 }
 
 // ─────────────────────────────────────────────────────────
@@ -213,41 +255,62 @@ void printSerial() {
   Serial.printf("🌡  Temperature : %.1f °C\n",  temperature);
   Serial.printf("💧  Humidity    : %.1f %%\n",  humidity);
   Serial.printf("🌫  MQ135 Raw   : %d\n",        mq135Raw);
+  Serial.printf("💨  CO2 Est.    : %.1f ppm\n",  co2Ppm);
+  Serial.printf("🧪  NH3 Est.    : %.1f ppm\n",  nh3Ppm);
+  Serial.printf("🧪  Benzene Est.: %.1f ppm\n",  benzenePpm);
   Serial.printf("📊  AQI Value   : %d\n",        aqiValue);
   Serial.printf("🏷  Category    : %s\n",        aqiCategory.c_str());
+  
+  // Display potential gases detected by MQ135 if air quality is degraded
+  if (aqiCategory != "Good") {
+    Serial.println("⚠️  Detected Pollutants: NH3, NOx, Alcohol, Benzene, Smoke, CO2");
+  } else {
+    Serial.println("🍃  Air Quality: Stable");
+  }
+  
   Serial.println("─────────────────────────────");
 }
 
 // ─────────────────────────────────────────────────────────
 void uploadToSupabase() {
+  WiFiClientSecure client;
+  client.setInsecure(); // Skip SSL certificate verification
+  
   HTTPClient http;
   String endpoint = String(SUPABASE_URL) + "/rest/v1/air_quality_readings";
 
-  http.begin(endpoint);
+  http.begin(client, endpoint);
+  http.setTimeout(10000); // 10s timeout
   http.addHeader("Content-Type",  "application/json");
   http.addHeader("apikey",        SUPABASE_APIKEY);
   http.addHeader("Authorization", String("Bearer ") + SUPABASE_APIKEY);
   http.addHeader("Prefer",        "return=minimal");
-
-  // Build JSON payload
+  
   StaticJsonDocument<512> doc;
-  doc["device_id"]     = DEVICE_ID;
-  doc["latitude"]      = latitude;
-  doc["longitude"]     = longitude;
-  doc["temperature"]   = temperature;
-  doc["humidity"]      = humidity;
-  doc["mq135_raw"]     = mq135Raw;
-  doc["aqi_value"]     = aqiValue;
-  doc["aqi_category"]  = aqiCategory;
-
+  doc["device_id"]    = DEVICE_ID;
+  doc["latitude"]     = latitude;
+  doc["longitude"]    = longitude;
+  doc["temperature"]  = temperature;
+  doc["humidity"]     = humidity;
+  doc["mq135_raw"]    = mq135Raw;
+  doc["aqi_value"]    = aqiValue;
+  doc["aqi_category"] = aqiCategory;
+  doc["co2_ppm"]      = co2Ppm;
+  doc["nh3_ppm"]      = nh3Ppm;
+  doc["benzene_ppm"]  = benzenePpm;
+  doc["alcohol_ppm"]  = alcoholPpm;
+  
   String body;
   serializeJson(doc, body);
-
+  
   int code = http.POST(body);
-  if (code == 201) {
-    Serial.println("☁️  Supabase upload OK (201)");
+  if (code == 201 || code == 200 || code == 204) {
+    Serial.printf("☁️  Supabase upload OK (%d)\n", code);
+    logHardwareActivity("info", "New data point uploaded: AQI " + String(aqiValue));
   } else {
     Serial.printf("❌  Supabase error: HTTP %d\n", code);
+    if (code == -1) Serial.println("⚠️  Check WiFi connection or SSL settings.");
+    logHardwareActivity("danger", "Upload failed: HTTP " + String(code));
     Serial.println(http.getString());
   }
   http.end();

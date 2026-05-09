@@ -1,4 +1,4 @@
-﻿-- ============================================================
+-- ============================================================
 --  SUPABASE DATABASE SETUP — Air Quality Monitor
 --  Run this in: Supabase Dashboard → SQL Editor → New Query
 -- ============================================================
@@ -7,11 +7,18 @@
 CREATE TABLE IF NOT EXISTS air_quality_readings (
   id            BIGSERIAL PRIMARY KEY,
   created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  device_id     TEXT DEFAULT 'AW-001',
+  latitude      NUMERIC(10, 7),
+  longitude     NUMERIC(10, 7),
   temperature   NUMERIC(5,2),       -- °C
   humidity      NUMERIC(5,2),       -- %
   mq135_raw     INTEGER,            -- raw ADC 0–4095
   aqi_value     INTEGER,            -- mapped 0–500
-  aqi_category  TEXT CHECK (aqi_category IN ('Good', 'Moderate', 'Unhealthy'))
+  aqi_category  TEXT CHECK (aqi_category IN ('Good', 'Moderate', 'Unhealthy')),
+  co2_ppm       NUMERIC(10,2),
+  nh3_ppm       NUMERIC(10,2),
+  benzene_ppm   NUMERIC(10,2),
+  alcohol_ppm   NUMERIC(10,2)
 );
 
 -- 2. Index on created_at for fast time-range queries
@@ -83,17 +90,22 @@ CREATE TABLE IF NOT EXISTS notification_users (
   last_alert    TIMESTAMPTZ
 );
 
--- 9. SMS notification log
-CREATE TABLE IF NOT EXISTS sms_notifications (
-  id            BIGSERIAL PRIMARY KEY,
-  created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  user_id       BIGINT REFERENCES notification_users(id),
+-- 9. SMS notification log (REFINED)
+CREATE TABLE IF NOT EXISTS public.sms_notifications (
+  id            BIGSERIAL NOT NULL,
+  created_at    TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+  user_id       BIGINT NULL,
   phone_number  TEXT NOT NULL,
   message       TEXT NOT NULL,
-  aqi_value     INTEGER,
-  status        TEXT DEFAULT 'pending', -- pending, sent, failed
-  error_message TEXT
-);
+  aqi_value     INTEGER NULL,
+  status        TEXT NULL DEFAULT 'pending'::TEXT,
+  error_message TEXT NULL,
+  CONSTRAINT sms_notifications_pkey PRIMARY KEY (id),
+  CONSTRAINT sms_notifications_user_id_fkey FOREIGN KEY (user_id) REFERENCES notification_users (id)
+) TABLESPACE pg_default;
+
+CREATE INDEX IF NOT EXISTS idx_sms_notifications_status ON public.sms_notifications USING btree (status) TABLESPACE pg_default;
+CREATE INDEX IF NOT EXISTS idx_sms_notifications_created ON public.sms_notifications USING btree (created_at DESC) TABLESPACE pg_default;
 
 -- 10. Device management table
 CREATE TABLE IF NOT EXISTS devices (
@@ -188,6 +200,7 @@ CREATE TABLE IF NOT EXISTS system_users (
   dept          TEXT DEFAULT 'General',
   status        TEXT DEFAULT 'active' CHECK (status IN ('active', 'inactive')),
   phone_number  TEXT,
+  password      TEXT NOT NULL DEFAULT 'admin123',
   last_login    TIMESTAMPTZ
 );
 
@@ -226,9 +239,36 @@ CREATE POLICY "allow_anon_delete_system_users"
   USING (true);
 
 -- 21. Insert default admin user
-INSERT INTO system_users (user_id, name, email, role, dept, status)
-VALUES ('USR-001', 'Admin User', 'admin@breathsafe.com', 'admin', 'System', 'active')
+INSERT INTO system_users (user_id, name, email, role, dept, status, password)
+VALUES ('USR-001', 'Admin User', 'admin@breathsafe.com', 'admin', 'System', 'active', 'admin123')
 ON CONFLICT (email) DO NOTHING;
+
+-- 22. In-App Notifications table (for internal alerting)
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+
+CREATE TABLE IF NOT EXISTS public.notifications (
+  notification_id UUID NOT NULL DEFAULT uuid_generate_v4(),
+  user_id         UUID NOT NULL, -- References auth.users or a custom users table
+  alert_id        UUID NULL,
+  title           CHARACTER VARYING(255) NOT NULL,
+  message         TEXT NOT NULL,
+  notification_type CHARACTER VARYING(20) NULL DEFAULT 'info'::CHARACTER VARYING,
+  is_read         BOOLEAN NULL DEFAULT FALSE,
+  created_at      TIMESTAMP WITH TIME ZONE NULL DEFAULT CURRENT_TIMESTAMP,
+  read_at         TIMESTAMP WITH TIME ZONE NULL,
+  CONSTRAINT notifications_pkey PRIMARY KEY (notification_id),
+  CONSTRAINT notifications_notification_type_check CHECK (
+    (notification_type)::TEXT = ANY (
+      ARRAY['info', 'warning', 'error', 'success']::TEXT[]
+    )
+  )
+) TABLESPACE pg_default;
+
+CREATE INDEX IF NOT EXISTS idx_notifications_user_unread ON public.notifications USING btree (user_id, is_read) TABLESPACE pg_default;
+CREATE INDEX IF NOT EXISTS idx_notifications_created ON public.notifications USING btree (created_at DESC) TABLESPACE pg_default;
+
+ALTER TABLE public.notifications ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "allow_anon_all_notifications" ON public.notifications FOR ALL TO anon USING (true) WITH CHECK (true);
 
 -- ============================================================
 --  HOW TO GET YOUR CREDENTIALS (for the Arduino sketch)
@@ -242,3 +282,28 @@ ON CONFLICT (email) DO NOTHING;
 --  QUICK TEST — paste in SQL Editor after uploading a reading:
 -- ============================================================
 --  SELECT * FROM latest_readings LIMIT 10;
+
+-- ============================================================
+--  SYSTEM ACTIVITY & REAL-TIME ALERTS
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS system_activity (
+  id            BIGSERIAL PRIMARY KEY,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  type          TEXT NOT NULL, -- info, success, warn, danger
+  category      TEXT NOT NULL, -- device, user, location, security
+  message       TEXT NOT NULL,
+  actor         TEXT,          -- Name of the user/role
+  device_id     TEXT           -- Optional device reference
+);
+
+ALTER TABLE system_activity ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "allow_anon_select_activity"
+  ON system_activity FOR SELECT TO anon USING (true);
+
+CREATE POLICY "allow_anon_insert_activity"
+  ON system_activity FOR INSERT TO anon WITH CHECK (true);
+
+CREATE INDEX IF NOT EXISTS idx_activity_created_at
+  ON system_activity (created_at DESC);
