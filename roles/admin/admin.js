@@ -712,7 +712,7 @@ function showDashboardToast(type, title, message, duration = 6000) {
 }
 
 let devices = [
-  { id:'AW-001', name:'Air Quality Monitor', location:'Your Location', lat:8.4542, lng:124.6319, status:'online', aqi:0, temp:0, hum:0, battery:100 }
+  { id:'AW-001', name:'Air Quality Monitor', location:'Your Location', lat:8.4542, lng:124.6319, status:'online', aqi:0, temp:0, hum:0, battery:100, lastReadingTime: null }
 ];
 let users = [
   { id:'USR-001', name:'Admin User', email:'admin@system.com', role:'admin', dept:'System', status:'active', created:'2024-01-10' },
@@ -766,6 +766,7 @@ let reportAlertLineChart = null;
 let reportSmsStackedChart = null;
 let reportAqiPieChart = null;
 let reportPollutantLineChart = null;
+let reportPollutantPieChart = null;
 let currentAlertFilter = 'all';
 let modalMap = null;
 let modalMarker = null;
@@ -778,6 +779,63 @@ function setActiveNav(page) {
 
 function navigateToPage(page) {
   window.location.href = `${page}.html`;
+}
+
+function getHardwareAlerts() {
+  const device = devices[0];
+  if (!device) return [];
+  const alerts = [];
+  // Use the actual reading time from DB, or a fixed old date if no data exists yet
+  const timestamp = device.lastReadingTime || '1970-01-01T00:00:00.000Z';
+  const alertLevel = getAlertLevel(device);
+  if (alertLevel !== 'normal') {
+    const template = buildAlertContent(alertLevel, device);
+    alerts.push({
+      type: getAlertTypeFromLevel(alertLevel),
+      msg: template.toastMessage,
+      time: device.lastSeen || 'Just now',
+      category: 'environment',
+      created_at: timestamp
+    });
+  }
+  if (device.battery < 20) {
+    alerts.push({
+      type: 'warn',
+      msg: `Arduino ${device.id}: Low battery (${device.battery}%)`,
+      time: device.lastSeen || 'Just now',
+      category: 'hardware',
+      created_at: timestamp
+    });
+  }
+  return alerts;
+}
+
+const ALERT_COUNT_KEY = 'breathsafe_alert_count';
+const BADGE_FETCH_LIMIT = 50;
+
+function computeUnreadCount(allAlerts) {
+  const lastRead = localStorage.getItem('alerts_last_read');
+  return allAlerts.filter(a =>
+    (!lastRead || new Date(a.created_at) > new Date(lastRead)) &&
+    (a.type === 'danger' || a.type === 'warn' || a.type === 'error')
+  ).length;
+}
+
+function updateAlertBadge(allAlerts) {
+  const badgeEl = document.getElementById('alert-nav-badge');
+  if (!badgeEl) return;
+  const unreadCount = computeUnreadCount(allAlerts);
+  badgeEl.textContent = unreadCount > 0 ? unreadCount : '';
+  badgeEl.style.display = unreadCount > 0 ? 'block' : 'none';
+  localStorage.setItem(ALERT_COUNT_KEY, String(unreadCount));
+}
+
+function renderCachedAlertBadge() {
+  const badgeEl = document.getElementById('alert-nav-badge');
+  if (!badgeEl) return;
+  const cached = localStorage.getItem(ALERT_COUNT_KEY) || '0';
+  badgeEl.textContent = cached !== '0' ? cached : '';
+  badgeEl.style.display = cached !== '0' ? 'block' : 'none';
 }
 
 async function loadOverview() {
@@ -824,7 +882,8 @@ async function loadOverview() {
           hum: latest ? (latest.humidity || 0) : 0,
           co2: latest ? Math.round((latest.mq135_raw || 0) * 0.12) : 0,
           battery: 100,
-          lastSeen: latest ? formatTimeAgo(latest.created_at) : 'Never'
+          lastSeen: latest ? formatTimeAgo(latest.created_at) : 'Never',
+          lastReadingTime: latest ? latest.created_at : null
         };
       });
       
@@ -982,25 +1041,32 @@ async function loadOverview() {
       `;
     }
 
-    const alerts = [];
-    const alertLevel = getAlertLevel(device);
-    if (alertLevel === 'danger' || alertLevel === 'high' || alertLevel === 'moderate') {
-      const template = buildAlertContent(alertLevel, device);
-      alerts.push({ type: getAlertTypeFromLevel(alertLevel), msg: template.toastMessage, time: device.lastSeen });
-    }
-    if (alerts.length === 0) {
-      alerts.push({ type: 'success', msg: `Arduino ${device.id}: All systems normal`, time: device.lastSeen });
-    }
+    const hwAlerts = getHardwareAlerts();
+    const alertsToShow = hwAlerts.length > 0 ? hwAlerts : [{ type: 'success', msg: `Arduino ${device.id}: All systems normal`, time: device.lastSeen }];
 
     const alertsEl = document.getElementById('overview-alerts');
     if (alertsEl) {
-      alertsEl.innerHTML = alerts.map(a => `
+      alertsEl.innerHTML = alertsToShow.map(a => `
         <div class="alert-item alert-${a.type}">
           <span>${a.msg}</span><span class="alert-time">${a.time}</span>
         </div>
       `).join('');
     }
   }, 100);
+
+  // Update badge with DB + hardware alerts for consistency across all pages
+  try {
+    const dbActivity = await Database.fetchActivity(BADGE_FETCH_LIMIT);
+    const dbAlerts = (dbActivity || []).map(a => ({
+      type: a.type,
+      created_at: a.created_at
+    }));
+    const hwAlerts = getHardwareAlerts();
+    updateAlertBadge([...dbAlerts, ...hwAlerts]);
+  } catch (e) {
+    // Fallback to hardware-only badge if DB fetch fails
+    updateAlertBadge(getHardwareAlerts());
+  }
 
   await loadArduinoReadingsTable();
   const currentDevice = devices[0];
@@ -1071,93 +1137,6 @@ function setAlertFilter(filter, btnElement) {
     tabs[0].classList.add('active');
   }
   loadAlerts();
-}
-
-async function loadAlerts() {
-  const feed = document.getElementById('admin-alerts');
-  if (!feed) return;
-  
-  const sortVal = document.getElementById('alert-sort')?.value || 'newest';
-  const severityVal = document.getElementById('severity-filter')?.value || 'all';
-  
-  feed.innerHTML = '<div style="text-align:center;padding:60px;color:var(--text3);"><div class="live-dot" style="margin:0 auto 12px;width:12px;height:12px;"></div>Filtering activity stream...</div>';
-  
-  try {
-    const dbActivity = await Database.fetchActivity(100);
-    if (!dbActivity || dbActivity.length === 0) {
-      feed.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text2);background:var(--bg3);border-radius:12px;">No activity recorded yet.</div>';
-      return;
-    }
-
-    let filtered = dbActivity;
-    
-    // 1. Filter by Category (Tabs)
-    if (currentAlertFilter !== 'all') {
-      filtered = filtered.filter(a => (a.category || '').toLowerCase() === currentAlertFilter);
-    }
-    
-    // 2. Filter by Severity
-    if (severityVal !== 'all') {
-      filtered = filtered.filter(a => {
-        const type = (a.type || '').toLowerCase();
-        if (severityVal === 'critical') return type === 'error' || type === 'danger';
-        if (severityVal === 'warning') return type === 'warn';
-        if (severityVal === 'info') return type === 'info' || type === 'success';
-        return true;
-      });
-    }
-
-    // 3. Sort
-    if (sortVal === 'oldest') {
-      filtered.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
-    } else {
-      filtered.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-    }
-
-    if (filtered.length === 0) {
-      feed.innerHTML = `<div style="text-align:center;padding:40px;color:var(--text2);background:var(--bg3);border-radius:12px;">No activities found in the <b>${currentAlertFilter}</b> category.</div>`;
-      return;
-    }
-
-    feed.innerHTML = filtered.map(a => {
-      const type = (a.category || 'system').toLowerCase();
-      const isDanger = a.type === 'error' || a.type === 'danger';
-      const isWarn = a.type === 'warn';
-      
-      const icon = isDanger ? '🚨' : isWarn ? '⚠️' : type === 'sms' ? '📤' : type === 'hardware' ? '📡' : '📝';
-      const borderCol = isDanger ? 'var(--red)' : isWarn ? 'var(--yellow)' : type === 'sms' ? 'var(--teal)' : type === 'hardware' ? 'var(--purple)' : 'var(--accent)';
-      const bgCol = isDanger ? 'rgba(239,68,68,0.05)' : isWarn ? 'rgba(245,158,11,0.05)' : 'rgba(255,255,255,0.02)';
-      
-      const dateObj = new Date(a.created_at);
-      const fullDate = dateObj.toLocaleDateString();
-      const fullTime = dateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-      
-      return `
-        <div class="alert-item" style="border-left: 4px solid ${borderCol}; background: ${bgCol}; padding: 16px; margin-bottom: 12px; border-radius: 8px; transition: transform 0.2s;">
-          <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 16px;">
-            <div style="font-size: 20px; background: var(--bg3); padding: 8px; border-radius: 8px; border: 1px solid var(--border);">${icon}</div>
-            <div style="flex: 1;">
-              <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
-                <span class="cat-badge" style="background:${borderCol}20; color:${borderCol}; border: 1px solid ${borderCol}40;">${type}</span>
-                <span style="font-size: 11px; color: var(--text3); font-weight: 600;">${a.actor || 'System'}</span>
-              </div>
-              <div style="font-size: 14px; font-weight: 500; color: var(--text); line-height: 1.5;">${a.message}</div>
-              <div style="font-size: 11px; color: var(--text3); margin-top: 8px; display: flex; gap: 16px; flex-wrap: wrap; opacity: 0.8;">
-                <span>📅 ${fullDate}</span>
-                <span>⏰ ${fullTime}</span>
-              </div>
-            </div>
-            <div style="text-align: right; flex-shrink: 0;">
-              <div style="font-size: 10px; color: var(--text2); font-family: var(--mono); font-weight: 600; background: var(--bg3); padding: 2px 8px; border-radius: 10px;">${formatTimeAgo(a.created_at)}</div>
-            </div>
-          </div>
-        </div>
-      `;
-    }).join('');
-  } catch (error) {
-    console.error('Error loading alerts:', error);
-    feed.innerHTML = '<div style="text-align:center;padding:40px;color:var(--red);">Failed to sync with the secure activity stream.</div>';
-  }
 }
 
 async function loadArduinoReadingsTable() {
@@ -1319,7 +1298,7 @@ async function loadReports() {
     ]);
     if (!readings || readings.length === 0) {
       metricsEl.innerHTML = '<div class="metric-card"><div class="mc-label">Report Status</div><div class="mc-value">No Data</div></div>';
-      interpretationEl.textContent = 'No readings available yet. Start collecting Arduino data to generate analytics.';
+      interpretationEl.innerHTML = '<tr><td colspan="3" style="text-align:center;color:var(--text2);padding:20px;">No readings available yet. Start collecting Arduino data to generate analytics.</td></tr>';
       thresholdBody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--text2);padding:20px;">No report data available</td></tr>';
       return;
     }
@@ -1378,12 +1357,27 @@ async function loadReports() {
       { label: 'Risk Exposure', val: riskRate, unit: '%', color: riskRate > 40 ? 'var(--red)' : 'var(--yellow)' },
       { label: 'Dominant Band', val: dominantLabel, unit: '', color: 'var(--purple)' }
     ].map(m => `<div class="metric-card"><div class="mc-label">${m.label}</div><div class="mc-value" style="color:${m.color}">${m.val}<span class="mc-unit">${m.unit}</span></div></div>`).join('');
-    interpretationEl.innerHTML = `
-      Current thresholds: Good <= <b>${good}</b>, Moderate <= <b>${moderate}</b>, Unhealthy <= <b>${unhealthy}</b>.<br>
-      Across the last <b>${total}</b> readings, the dominant condition is <b>${dominantLabel}</b> with a risk exposure of <b>${riskRate}%</b> (unhealthy + hazardous bands).<br>
-      Interpretation: ${riskRate > 40 ? 'High environmental risk trend. Strengthen preventive controls and reduce outdoor exposure during peak intervals.' : riskRate > 20 ? 'Moderate risk trend. Continue monitoring and apply precautionary advisories for sensitive groups.' : 'Low risk trend. Conditions are mostly manageable; maintain continuous monitoring.'}
-    `;
     const pct = v => ((v / total) * 100).toFixed(1) + '%';
+    const riskText = riskRate > 40 ? 'High environmental risk' : riskRate > 20 ? 'Moderate risk trend' : 'Low risk trend';
+    const riskDesc = riskRate > 40 ? 'Strengthen preventive controls and reduce outdoor exposure during peak intervals.' : riskRate > 20 ? 'Continue monitoring and apply precautionary advisories for sensitive groups.' : 'Conditions are mostly manageable; maintain continuous monitoring.';
+    const aqiStatus = avgAqi <= good ? 'Good' : avgAqi <= moderate ? 'Moderate' : avgAqi <= unhealthy ? 'Unhealthy' : 'Hazardous';
+    const aqiStatusColor = avgAqi <= good ? 'var(--green)' : avgAqi <= moderate ? 'var(--yellow)' : avgAqi <= unhealthy ? 'var(--orange)' : 'var(--red)';
+    interpretationEl.innerHTML = [
+      ['Average AQI', `${avgAqi}`, `<span style="color:${aqiStatusColor}">${aqiStatus}</span>`],
+      ['Average Temperature', `${avgTemp} °C`, `${avgTemp > 35 ? 'Hot' : avgTemp < 18 ? 'Cold' : 'Normal'}`],
+      ['Average Humidity', `${avgHum}%`, `${avgHum > 80 ? 'High' : avgHum < 30 ? 'Low' : 'Normal'}`],
+      ['Dominant Condition', `${dominantLabel}`, `${counts[dominant]} of ${total} readings (${pct(counts[dominant])})`],
+      ['Risk Exposure', `${riskRate}%`, `${riskText}. ${riskDesc}`],
+      ['Alerts Generated', `${alertsGenerated}`, `${alertsGenerated > 0 ? 'Elevated risk periods detected' : 'No elevated risk periods'}`],
+      ['Total Readings', `${total}`, 'Dataset size for this report'],
+      ['Current Thresholds', `Good ≤ ${good}, Moderate ≤ ${moderate}, Unhealthy ≤ ${unhealthy}`, 'Applied AQI bands']
+    ].map(row => `
+      <tr>
+        <td style="font-weight:600;color:var(--text);">${row[0]}</td>
+        <td style="font-family:var(--mono);color:var(--accent);">${row[1]}</td>
+        <td style="color:var(--text2);font-size:12px;">${row[2]}</td>
+      </tr>
+    `).join('');
     thresholdBody.innerHTML = [
       ['Good', `0 - ${good}`, counts.good, pct(counts.good), 'Safe baseline. Standard activities allowed.'],
       ['Moderate', `${good + 1} - ${moderate}`, counts.moderate, pct(counts.moderate), 'Mild discomfort possible for sensitive individuals.'],
@@ -1497,13 +1491,52 @@ async function loadReports() {
           options: {
             responsive: true, maintainAspectRatio: false,
             interaction: { mode: 'index', intersect: false },
-            scales: { 
-              x: { grid: { color: gridColor }, ticks: tickStyle }, 
-              y: { grid: { color: gridColor }, ticks: tickStyle, beginAtZero: true } 
+            scales: {
+              x: { grid: { color: gridColor }, ticks: tickStyle },
+              y: { grid: { color: gridColor }, ticks: tickStyle, beginAtZero: true }
             },
             plugins: { legend: { labels: { color: '#8fa3bc', boxWidth: 12, font: { size: 11 } } } }
           }
         });
+
+        // Pollutant Pie Chart — average concentration share
+        const pollPieCtx = document.getElementById('report-pollutant-pie-chart');
+        if (pollPieCtx) {
+          if (reportPollutantPieChart) reportPollutantPieChart.destroy();
+          const avgCo2 = sortedReadings.reduce((s, r) => s + getVal(r.co2_ppm, r.mq135_raw, 0.12, 400), 0) / sortedReadings.length;
+          const avgNh3 = sortedReadings.reduce((s, r) => s + getVal(r.nh3_ppm, r.mq135_raw, 0.08), 0) / sortedReadings.length;
+          const avgBenzene = sortedReadings.reduce((s, r) => s + getVal(r.benzene_ppm, r.mq135_raw, 0.04), 0) / sortedReadings.length;
+          const avgAlcohol = sortedReadings.reduce((s, r) => s + getVal(r.alcohol_ppm, r.mq135_raw, 0.06), 0) / sortedReadings.length;
+          reportPollutantPieChart = new Chart(pollPieCtx.getContext('2d'), {
+            type: 'pie',
+            data: {
+              labels: ['CO₂', 'NH₃', 'Benzene', 'Alcohol'],
+              datasets: [{
+                data: [avgCo2, avgNh3, avgBenzene, avgAlcohol],
+                backgroundColor: ['#a855f7', '#22c55e', '#ef4444', '#14b8a6'],
+                borderWidth: 1,
+                borderColor: '#111827'
+              }]
+            },
+            options: {
+              responsive: true,
+              maintainAspectRatio: false,
+              plugins: {
+                legend: { position: 'bottom', labels: { color: '#8fa3bc' } },
+                tooltip: {
+                  callbacks: {
+                    label: function(context) {
+                      const val = context.raw;
+                      const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                      const pct = total > 0 ? ((val / total) * 100).toFixed(1) : '0.0';
+                      return ` ${context.label}: ${val.toFixed(1)} ppm (${pct}%)`;
+                    }
+                  }
+                }
+              }
+            }
+          });
+        }
       }
     } else {
       console.warn('Chart.js not loaded, skipping chart generation');
@@ -2043,11 +2076,11 @@ async function loadAlerts() {
   const severityFilter = document.getElementById('severity-filter')?.value || 'all';
   const sortOrder = document.getElementById('alert-sort')?.value || 'newest';
 
-  // 1. Fetch persistent activity logs from DB (fetch more to allow for client-side filtering)
-  const dbActivity = await Database.fetchActivity(100);
+  // 1. Fetch persistent activity logs from DB
+  const dbActivity = await Database.fetchActivity(BADGE_FETCH_LIMIT);
   let allAlerts = (dbActivity || []).map(a => {
     let cat = a.category || 'system';
-    
+
     // HISTORICAL FIX: Re-route specific message types that might have been mis-categorized in the past
     if (a.message && (a.message.includes('Broadcast Failure') || a.message.includes('queued for'))) {
       cat = 'sms';
@@ -2064,34 +2097,17 @@ async function loadAlerts() {
     };
   });
 
-  // 2. Local hardware alerts (only if category is all or hardware/environment)
-  const device = devices[0];
-  if (device && (categoryFilter === 'all' || categoryFilter === 'hardware' || categoryFilter === 'environment')) {
-    const alertLevel = getAlertLevel(device);
-    if (alertLevel !== 'normal') {
-      const template = buildAlertContent(alertLevel, device);
-      allAlerts.push({ 
-        type: getAlertTypeFromLevel(alertLevel), 
-        msg: template.toastMessage, 
-        time: device.lastSeen || 'Just now', 
-        category: 'environment',
-        created_at: new Date().toISOString() 
-      });
-    }
-    if (device.battery < 20) {
-      allAlerts.push({ 
-        type: 'warn', 
-        msg: `Arduino ${device.id}: Low battery (${device.battery}%)`, 
-        time: device.lastSeen || 'Just now', 
-        category: 'hardware',
-        created_at: new Date().toISOString()
-      });
-    }
-  }
+  // 2. Local hardware alerts
+  const hwAlerts = getHardwareAlerts();
+  allAlerts.push(...hwAlerts);
+
+  // Update badge from unfiltered data so count is consistent across pages
+  updateAlertBadge(allAlerts);
 
   // 3. Apply Category Filter
+  let filteredAlerts = [...allAlerts];
   if (categoryFilter !== 'all') {
-    allAlerts = allAlerts.filter(a => {
+    filteredAlerts = filteredAlerts.filter(a => {
       if (categoryFilter === 'hardware') return a.category === 'hardware' || a.category === 'environment' || a.category === 'location';
       if (categoryFilter === 'sms') return a.category === 'sms';
       if (categoryFilter === 'user') return a.category === 'user' || a.category === 'device' || a.category === 'auth';
@@ -2101,7 +2117,7 @@ async function loadAlerts() {
 
   // 4. Apply Severity Filter
   if (severityFilter !== 'all') {
-    allAlerts = allAlerts.filter(a => {
+    filteredAlerts = filteredAlerts.filter(a => {
       if (severityFilter === 'critical') return a.type === 'danger' || a.type === 'error';
       if (severityFilter === 'warning') return a.type === 'warn';
       if (severityFilter === 'info') return a.type === 'info' || a.type === 'success';
@@ -2110,26 +2126,17 @@ async function loadAlerts() {
   }
 
   // 5. Apply Sorting
-  allAlerts.sort((a, b) => {
+  filteredAlerts.sort((a, b) => {
     const dateA = new Date(a.created_at);
     const dateB = new Date(b.created_at);
     return sortOrder === 'newest' ? dateB - dateA : dateA - dateB;
   });
 
-  // Update Badge
-  const badgeEl = document.getElementById('alert-nav-badge');
-  if (badgeEl) {
-    const lastRead = localStorage.getItem('alerts_last_read');
-    const unreadCount = allAlerts.filter(a => (!lastRead || new Date(a.created_at) > new Date(lastRead)) && (a.type === 'danger' || a.type === 'warn' || a.type === 'error')).length;
-    badgeEl.textContent = unreadCount > 0 ? unreadCount : '';
-    badgeEl.style.display = unreadCount > 0 ? 'block' : 'none';
-  }
-
   // Update UI List
   const alertsContainer = document.getElementById('admin-alerts');
   if (alertsContainer) {
     const lastRead = localStorage.getItem('alerts_last_read');
-    alertsContainer.innerHTML = allAlerts.length > 0 ? allAlerts.map(alert => {
+    alertsContainer.innerHTML = filteredAlerts.length > 0 ? filteredAlerts.map(alert => {
       const isUnread = !lastRead || (alert.created_at && new Date(alert.created_at) > new Date(lastRead));
       
       // Map technical category to human-readable label
@@ -2154,7 +2161,7 @@ async function loadAlerts() {
       `;
     }).join('') : `<div style="text-align:center;padding:60px 20px;color:var(--text3);">
         <div style="font-size:40px;margin-bottom:12px;opacity:0.3;">📂</div>
-        <p>No ${categoryFilter !== 'all' ? categoryFilter : ''} alerts found for the current filters.</p>
+        <p>No ${filteredAlerts.length === 0 ? categoryFilter !== 'all' ? categoryFilter : '' : ''} alerts found for the current filters.</p>
       </div>`;
   }
 }
@@ -2698,6 +2705,7 @@ async function checkStaleSMS() {
 function initializeAdmin() {
   const page = document.body.dataset.page || 'overview';
   setActiveNav(page);
+  renderCachedAlertBadge();
   trackUserStat(activeSessionUserId, 'logins', 1);
   if (page === 'overview') loadOverview();
   if (page === 'devices') loadDevices();
@@ -2755,7 +2763,7 @@ function initializeAdmin() {
         }
       }
 
-      devices[0] = { ...devices[0], aqi: latest.aqi_value || 0, temp: latest.temperature || 0, hum: latest.humidity || 0, lastSeen: formatTimeAgo(latest.created_at) };
+      devices[0] = { ...devices[0], aqi: latest.aqi_value || 0, temp: latest.temperature || 0, hum: latest.humidity || 0, lastSeen: formatTimeAgo(latest.created_at), lastReadingTime: latest.created_at };
       
       systemActivity.unshift({ type: 'info', msg: `Background sync: Database polling successful`, time: new Date().toLocaleTimeString() });
       if (systemActivity.length > 10) systemActivity.pop();
@@ -2780,13 +2788,20 @@ function initializeAdmin() {
         console.log('🔇 System Offline: Alert and Toast suppression active.');
       }
       
-      await checkStaleSMS(); 
+      await checkStaleSMS();
+
+      // Background badge refresh for all pages
+      try {
+        const dbActivity = await Database.fetchActivity(BADGE_FETCH_LIMIT);
+        const dbAlerts = (dbActivity || []).map(a => ({ type: a.type, created_at: a.created_at }));
+        updateAlertBadge([...dbAlerts, ...getHardwareAlerts()]);
+      } catch (e) { /* silent fail */ }
     } else {
       console.warn('⚠️ No database connection, generating offline data');
       const offlineData = generateOfflineData();
       if (offlineData && offlineData.length > 0) {
         const latest = offlineData[0];
-        devices[0] = { ...devices[0], aqi: latest.aqi_value || 0, temp: latest.temperature || 0, hum: latest.humidity || 0, co2: Math.round((latest.mq135_raw || 0) * 0.12), battery: 85 + Math.random() * 15, lastSeen: 'Offline Mode' };
+        devices[0] = { ...devices[0], aqi: latest.aqi_value || 0, temp: latest.temperature || 0, hum: latest.humidity || 0, co2: Math.round((latest.mq135_raw || 0) * 0.12), battery: 85 + Math.random() * 15, lastSeen: 'Offline Mode', lastReadingTime: latest.created_at };
         const summaryDataSource = document.getElementById('summary-data-source');
         const summaryStatus = document.getElementById('summary-status');
         if (summaryDataSource) summaryDataSource.textContent = 'Offline (Generated)';
@@ -2794,6 +2809,8 @@ function initializeAdmin() {
         if (document.getElementById('summary-last-update')) document.getElementById('summary-last-update').textContent = new Date().toLocaleTimeString();
         if (document.body.dataset.page === 'overview') loadOverview();
       }
+      // Refresh badge with hardware-only alerts when offline
+      updateAlertBadge(getHardwareAlerts());
     }
   }, 30000);
 }

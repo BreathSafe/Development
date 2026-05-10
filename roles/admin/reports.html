@@ -32,11 +32,17 @@
           <div class="card"><div class="card-head"><span class="card-title">SMS Status per User (Stacked)</span></div><div class="card-body"><div style="height:260px;position:relative;"><canvas id="report-sms-stacked-chart"></canvas></div></div></div>
           <div class="card"><div class="card-head"><span class="card-title">AQI Band Share (Pie)</span></div><div class="card-body"><div style="height:260px;position:relative;"><canvas id="report-aqi-pie-chart"></canvas></div></div></div>
         </div>
-        <div class="card" style="margin-bottom:16px;">
-          <div class="card-head"><span class="card-title">📊 Pollutant Concentration Trends (CO₂, NH₃, Benzene, Alcohol)</span></div>
-          <div class="card-body"><div style="height:280px;position:relative;"><canvas id="report-pollutant-line-chart"></canvas></div></div>
+        <div style="display:grid;grid-template-columns:2fr 1fr;gap:16px;margin-bottom:16px;">
+          <div class="card">
+            <div class="card-head"><span class="card-title">📊 Pollutant Concentration Trends (CO₂, NH₃, Benzene, Alcohol)</span></div>
+            <div class="card-body"><div style="height:280px;position:relative;"><canvas id="report-pollutant-line-chart"></canvas></div></div>
+          </div>
+          <div class="card">
+            <div class="card-head"><span class="card-title">🥧 Pollutant Share (Pie)</span></div>
+            <div class="card-body"><div style="height:280px;position:relative;"><canvas id="report-pollutant-pie-chart"></canvas></div></div>
+          </div>
         </div>
-        <div class="card"><div class="card-head"><span class="card-title">Interpretation</span><button class="btn btn-ghost btn-sm" onclick="loadReports()">Refresh</button></div><div class="card-body"><div id="report-interpretation" style="font-size:13px;color:var(--text2);line-height:1.6;">Loading interpretation...</div></div></div>
+        <div class="card"><div class="card-head"><span class="card-title">System Health Summary</span><button class="btn btn-ghost btn-sm" onclick="loadReports()">Refresh</button></div><div class="card-body"><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Metric</th><th>Value</th><th>Status / Assessment</th></tr></thead><tbody id="report-interpretation"><tr><td colspan="3" style="text-align:center;color:var(--text2);padding:20px;">Loading interpretation...</td></tr></tbody></table></div></div></div>
         <div class="card"><div class="card-head"><span class="card-title">AQI Threshold Distribution</span><span style="font-size:11px;color:var(--text2);">Based on latest 100 readings</span></div><div class="card-body"><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Category</th><th>Range</th><th>Readings</th><th>Share</th><th>Interpretation</th></tr></thead><tbody id="report-threshold-body"><tr><td colspan="5" style="text-align:center;color:var(--text2);padding:20px;">Loading report...</td></tr></tbody></table></div></div></div>
       </div>
     </div>
