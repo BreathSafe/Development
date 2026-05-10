@@ -1285,10 +1285,42 @@ function drawOverviewCharts(readings) {
   }
 }
 
+// ── Maintenance helpers (shared with admin reports) ──────
+const ADMIN_TYPE_LABELS = {
+  inspection:         '🔍 Inspection',
+  sensor_replacement: '🔧 Sensor Replacement',
+  calibration:        '⚖️ Calibration',
+  cleaning:           '🧹 Cleaning',
+  firmware_update:    '💾 Firmware Update',
+  repair:             '🛠️ Repair',
+  other:              '📝 Other'
+};
+
+async function fetchMaintenanceLogs(limit = 500) {
+  try {
+    const response = await fetch(
+      `${DB_CONFIG.url}/rest/v1/maintenance_logs?order=created_at.desc&limit=${limit}`,
+      { headers: { 'apikey': DB_CONFIG.anonKey, 'Authorization': `Bearer ${DB_CONFIG.anonKey}` } }
+    );
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    return await response.json();
+  } catch (e) {
+    console.error('Error fetching maintenance logs:', e);
+    return [];
+  }
+}
+
+let adminReportCharts = {};
+function destroyAdminChart(id) {
+  if (adminReportCharts[id]) { try { adminReportCharts[id].destroy(); } catch(e){} delete adminReportCharts[id]; }
+}
+
 async function loadReports() {
-  const metricsEl = document.getElementById('reports-metrics');
+  const metricsEl       = document.getElementById('reports-metrics');
   const interpretationEl = document.getElementById('report-interpretation');
-  const thresholdBody = document.getElementById('report-threshold-body');
+  const thresholdBody   = document.getElementById('report-threshold-body');
+  const genAtEl         = document.getElementById('report-generated-at');
+  if (genAtEl) genAtEl.textContent = `Generated ${new Date().toLocaleString()}`;
   if (!metricsEl || !interpretationEl || !thresholdBody) return;
   try {
     const [readings, dbUsers, smsNotifications] = await Promise.all([
@@ -1538,23 +1570,269 @@ async function loadReports() {
           });
         }
       }
+      // ── AQI Trend chart (new) ─────────────────────────────
+      const aqiTrendCtx = document.getElementById('report-aqi-trend-chart');
+      if (aqiTrendCtx) {
+        destroyAdminChart('report-aqi-trend-chart');
+        const sortedR = [...readings].reverse();
+        const trendLabels = sortedR.map((r, i) => {
+          const d = new Date(r.created_at);
+          return Number.isNaN(d.getTime()) ? `#${i+1}` : d.toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' });
+        });
+        adminReportCharts['report-aqi-trend-chart'] = new Chart(aqiTrendCtx.getContext('2d'), {
+          type: 'line',
+          data: {
+            labels: trendLabels,
+            datasets: [{
+              label: 'AQI',
+              data: sortedR.map(r => Number(r.aqi_value) || 0),
+              borderColor: '#3b82f6',
+              backgroundColor: 'rgba(59,130,246,0.12)',
+              borderWidth: 2, pointRadius: 2, tension: 0.4, fill: true
+            }]
+          },
+          options: {
+            responsive: true, maintainAspectRatio: false,
+            plugins: { legend: { display: false } },
+            scales: {
+              x: { grid: { color: gridColor }, ticks: { ...tickStyle, maxTicksLimit: 12 } },
+              y: { grid: { color: gridColor }, ticks: tickStyle, beginAtZero: true }
+            }
+          }
+        });
+      }
+
+      // ── Env chart (new) ───────────────────────────────────
+      const envCtx2 = document.getElementById('report-env-chart');
+      if (envCtx2) {
+        destroyAdminChart('report-env-chart');
+        const sortedR = [...readings].reverse();
+        const envLabels = sortedR.map((r, i) => {
+          const d = new Date(r.created_at);
+          return Number.isNaN(d.getTime()) ? `#${i+1}` : d.toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' });
+        });
+        adminReportCharts['report-env-chart'] = new Chart(envCtx2.getContext('2d'), {
+          type: 'line',
+          data: {
+            labels: envLabels,
+            datasets: [
+              { label: 'Temp (°C)', data: sortedR.map(r => Number(r.temperature)||0), borderColor: '#f97316', backgroundColor: 'rgba(249,115,22,0.1)', borderWidth: 2, pointRadius: 1, tension: 0.4, fill: true, yAxisID: 'y' },
+              { label: 'Humidity (%)', data: sortedR.map(r => Number(r.humidity)||0), borderColor: '#14b8a6', backgroundColor: 'rgba(20,184,166,0.08)', borderWidth: 2, pointRadius: 1, tension: 0.4, fill: true, yAxisID: 'y1' }
+            ]
+          },
+          options: {
+            responsive: true, maintainAspectRatio: false,
+            interaction: { mode: 'index', intersect: false },
+            plugins: { legend: { labels: { color: '#8fa3bc', boxWidth: 12, font: { size: 11 } } } },
+            scales: {
+              x: { grid: { color: gridColor }, ticks: { ...tickStyle, maxTicksLimit: 10 } },
+              y:  { grid: { color: gridColor }, ticks: { ...tickStyle, color: '#f97316' }, position: 'left' },
+              y1: { grid: { drawOnChartArea: false }, ticks: { ...tickStyle, color: '#14b8a6' }, position: 'right' }
+            }
+          }
+        });
+      }
+
     } else {
       console.warn('Chart.js not loaded, skipping chart generation');
-      const chartContainers = [
-        document.getElementById('report-user-bar-chart'),
-        document.getElementById('report-alert-line-chart'),
-        document.getElementById('report-sms-stacked-chart'),
-        document.getElementById('report-aqi-pie-chart')
-      ];
-      chartContainers.forEach(container => {
-        if (container) container.parentElement.innerHTML = '<div style="display:flex;height:100%;align-items:center;justify-content:center;color:var(--text3);">Charts unavailable</div>';
-      });
     }
+
+    // ── MAINTENANCE SECTION ───────────────────────────────
+    await renderAdminMaintenanceSection();
+
   } catch (error) {
     console.error('Error loading reports:', error);
     metricsEl.innerHTML = '<div class="metric-card"><div class="mc-label">Report Status</div><div class="mc-value">Error</div></div>';
     interpretationEl.textContent = 'Unable to generate analytics report right now.';
     thresholdBody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--red);padding:20px;">Failed to generate report</td></tr>';
+  }
+}
+
+async function renderAdminMaintenanceSection() {
+  const kpiEl     = document.getElementById('report-maint-kpi-cards');
+  const summaryEl = document.getElementById('report-maint-summary');
+  const countEl   = document.getElementById('report-maint-log-count');
+  const tbody     = document.querySelector('#report-maint-log-table tbody');
+
+  const logs = await fetchMaintenanceLogs(500);
+
+  // ── KPI computation ───────────────────────────────────
+  const total      = logs.length;
+  const resolved   = logs.filter(l => l.status === 'resolved').length;
+  const ongoing    = logs.filter(l => l.status === 'ongoing').length;
+  const monitoring = logs.filter(l => l.status === 'monitoring').length;
+  const resRate    = total > 0 ? Math.round((resolved / total) * 100) : 0;
+
+  let avgInterval = '--';
+  if (logs.length >= 2) {
+    const sorted = [...logs].sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+    const gaps = [];
+    for (let i = 1; i < sorted.length; i++)
+      gaps.push((new Date(sorted[i].created_at) - new Date(sorted[i-1].created_at)) / 86400000);
+    avgInterval = (gaps.reduce((a,b)=>a+b,0)/gaps.length).toFixed(1);
+  }
+
+  const typeCounts = {};
+  logs.forEach(l => { typeCounts[l.type] = (typeCounts[l.type]||0)+1; });
+  const topType = Object.entries(typeCounts).sort((a,b)=>b[1]-a[1])[0];
+
+  const compCounts = {};
+  logs.forEach(l => {
+    (Array.isArray(l.components) ? l.components : []).forEach(c => { compCounts[c] = (compCounts[c]||0)+1; });
+  });
+  const topComp = Object.entries(compCounts).sort((a,b)=>b[1]-a[1])[0];
+
+  // ── KPI cards ─────────────────────────────────────────
+  if (kpiEl) {
+    const resColor = resRate >= 80 ? 'var(--green)' : resRate >= 50 ? 'var(--yellow)' : 'var(--red)';
+    kpiEl.innerHTML = [
+      { label:'Total Activities',   val:total,          sub:'all time',                                  color:'var(--accent)',  icon:'🔧' },
+      { label:'Resolution Rate',    val:resRate+'%',     sub:`${resolved} resolved of ${total}`,          color:resColor,        icon:'✅' },
+      { label:'Ongoing Issues',     val:ongoing,         sub:`${monitoring} under monitoring`,             color:ongoing>0?'var(--orange)':'var(--green)', icon:'⚠️' },
+      { label:'Avg. Interval',      val:avgInterval,     sub:'days between activities',                   color:'var(--teal)',    icon:'📅' },
+      { label:'Top Activity',       val:topType ? (ADMIN_TYPE_LABELS[topType[0]]||topType[0]).replace(/^\S+\s/,'') : '--', sub:topType?`${topType[1]}×`:'No data', color:'var(--purple)', icon:'📋' },
+      { label:'Most Serviced Part', val:topComp?topComp[0]:'--', sub:topComp?`${topComp[1]}×`:'No data', color:'var(--yellow)',  icon:'🔩' },
+    ].map(m => `
+      <div class="metric-card" style="border-left:3px solid ${m.color};">
+        <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">
+          <span style="font-size:15px;">${m.icon}</span>
+          <div class="mc-label">${m.label}</div>
+        </div>
+        <div class="mc-value" style="color:${m.color};font-size:22px;">${m.val}</div>
+        <div style="font-size:10px;color:var(--text3);margin-top:3px;">${m.sub}</div>
+      </div>
+    `).join('');
+  }
+
+  // ── Narrative summary ─────────────────────────────────
+  if (summaryEl) {
+    const resColor  = resRate >= 80 ? 'var(--green)' : resRate >= 50 ? 'var(--yellow)' : 'var(--red)';
+    const resWord   = resRate >= 80 ? 'healthy' : resRate >= 50 ? 'moderate' : 'poor';
+    summaryEl.innerHTML = `
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+        <div>
+          <div style="font-size:12px;font-weight:600;color:var(--text);margin-bottom:8px;">Performance Overview</div>
+          <p style="color:var(--text2);line-height:1.7;font-size:12px;">
+            <strong style="color:var(--text);">${total} maintenance ${total===1?'activity was':'activities were'}</strong> recorded across all devices.
+            Resolution rate is <strong style="color:${resColor};">${resRate}%</strong> — a
+            <strong style="color:${resColor};">${resWord}</strong> maintenance posture.
+            ${ongoing>0?`<span style="color:var(--orange);"> ${ongoing} issue${ongoing>1?'s remain':' remains'} unresolved.</span>`:'All logged issues resolved or under monitoring.'}
+          </p>
+          ${avgInterval!=='--'?`<p style="color:var(--text2);line-height:1.7;font-size:12px;margin-top:8px;">
+            Average interval between activities: <strong style="color:var(--teal);">${avgInterval} days</strong>.
+            ${parseFloat(avgInterval)>30?'Consider increasing inspection frequency.':'Frequency is within a healthy range.'}
+          </p>`:''}
+        </div>
+        <div>
+          <div style="font-size:12px;font-weight:600;color:var(--text);margin-bottom:8px;">Key Findings</div>
+          <div style="display:flex;flex-direction:column;gap:6px;font-size:12px;">
+            ${topType?`<div style="display:flex;align-items:center;gap:8px;padding:7px 10px;background:rgba(168,85,247,.08);border:1px solid rgba(168,85,247,.2);border-radius:8px;">
+              <span>📋</span><span style="color:var(--text2);">Most frequent: <strong style="color:var(--text);">${ADMIN_TYPE_LABELS[topType[0]]||topType[0]}</strong> (${topType[1]}×)</span>
+            </div>`:''}
+            ${topComp?`<div style="display:flex;align-items:center;gap:8px;padding:7px 10px;background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.2);border-radius:8px;">
+              <span>🔩</span><span style="color:var(--text2);">Most serviced: <strong style="color:var(--text);">${topComp[0]}</strong> (${topComp[1]}×)</span>
+            </div>`:''}
+            <div style="display:flex;align-items:center;gap:8px;padding:7px 10px;background:rgba(34,197,94,.08);border:1px solid rgba(34,197,94,.2);border-radius:8px;">
+              <span>✅</span><span style="color:var(--text2);">Resolved: <strong style="color:var(--green);">${resolved}</strong> &nbsp;|&nbsp; Ongoing: <strong style="color:var(--orange);">${ongoing}</strong> &nbsp;|&nbsp; Monitoring: <strong style="color:var(--yellow);">${monitoring}</strong></span>
+            </div>
+            ${total===0?`<div style="padding:7px 10px;color:var(--text3);font-style:italic;">No maintenance records found.</div>`:''}
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  // ── Maintenance charts ────────────────────────────────
+  if (window.Chart) {
+    const gridColor = 'rgba(255,255,255,0.05)';
+    const tickStyle = { color: '#556b82', font: { size: 10 } };
+    const PALETTE   = ['#3b82f6','#22c55e','#f59e0b','#ef4444','#a855f7','#14b8a6','#f97316'];
+
+    // Type doughnut
+    const typeCtx = document.getElementById('report-maint-type-chart');
+    if (typeCtx) {
+      destroyAdminChart('report-maint-type-chart');
+      const typeLabels = Object.keys(typeCounts).map(k => (ADMIN_TYPE_LABELS[k]||k).replace(/^\S+\s/,''));
+      adminReportCharts['report-maint-type-chart'] = new Chart(typeCtx.getContext('2d'), {
+        type: 'doughnut',
+        data: { labels: typeLabels, datasets: [{ data: Object.values(typeCounts), backgroundColor: PALETTE, borderColor: '#111827', borderWidth: 2, hoverOffset: 6 }] },
+        options: { responsive: true, maintainAspectRatio: false, cutout: '60%', plugins: { legend: { position: 'bottom', labels: { color: '#8fa3bc', boxWidth: 10, font: { size: 11 } } } } }
+      });
+    }
+
+    // Status bar
+    const statusCtx = document.getElementById('report-maint-status-chart');
+    if (statusCtx) {
+      destroyAdminChart('report-maint-status-chart');
+      adminReportCharts['report-maint-status-chart'] = new Chart(statusCtx.getContext('2d'), {
+        type: 'bar',
+        data: {
+          labels: ['Resolved', 'Ongoing', 'Monitoring'],
+          datasets: [{ label: 'Count', data: [resolved, ongoing, monitoring], backgroundColor: ['rgba(34,197,94,.7)','rgba(239,68,68,.7)','rgba(245,158,11,.7)'], borderColor: ['#22c55e','#ef4444','#f59e0b'], borderWidth: 1, borderRadius: 6 }]
+        },
+        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { grid: { color: gridColor }, ticks: tickStyle }, y: { grid: { color: gridColor }, ticks: { ...tickStyle, stepSize: 1 }, beginAtZero: true } } }
+      });
+    }
+
+    // Timeline line
+    const timeCtx = document.getElementById('report-maint-timeline-chart');
+    if (timeCtx && logs.length > 0) {
+      destroyAdminChart('report-maint-timeline-chart');
+      const dateCounts = {};
+      logs.forEach(l => { const d = new Date(l.created_at).toLocaleDateString('en-CA'); dateCounts[d] = (dateCounts[d]||0)+1; });
+      const sortedLogs = [...logs].sort((a,b) => new Date(a.created_at)-new Date(b.created_at));
+      const start = new Date(sortedLogs[0].created_at); start.setHours(0,0,0,0);
+      const timeLabels = [], timeData = [];
+      for (let d = new Date(start); d <= new Date(); d.setDate(d.getDate()+1)) {
+        timeLabels.push(d.toLocaleDateString(undefined, { month:'short', day:'numeric' }));
+        timeData.push(dateCounts[d.toLocaleDateString('en-CA')]||0);
+      }
+      adminReportCharts['report-maint-timeline-chart'] = new Chart(timeCtx.getContext('2d'), {
+        type: 'line',
+        data: { labels: timeLabels, datasets: [{ label: 'Activities', data: timeData, borderColor: '#3b82f6', backgroundColor: 'rgba(59,130,246,.12)', borderWidth: 2, pointRadius: 3, fill: true, tension: 0.35 }] },
+        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { grid: { color: gridColor }, ticks: { ...tickStyle, maxTicksLimit: 10 } }, y: { grid: { color: gridColor }, ticks: { ...tickStyle, stepSize: 1 }, beginAtZero: true } } }
+      });
+    }
+
+    // Component horizontal bar
+    const compCtx = document.getElementById('report-maint-comp-chart');
+    if (compCtx) {
+      destroyAdminChart('report-maint-comp-chart');
+      const compSorted = Object.entries(compCounts).sort((a,b)=>b[1]-a[1]);
+      adminReportCharts['report-maint-comp-chart'] = new Chart(compCtx.getContext('2d'), {
+        type: 'bar',
+        data: {
+          labels: compSorted.map(([k])=>k),
+          datasets: [{ label: 'Times Serviced', data: compSorted.map(([,v])=>v), backgroundColor: compSorted.map((_,i)=>PALETTE[i%PALETTE.length]+'bb'), borderColor: compSorted.map((_,i)=>PALETTE[i%PALETTE.length]), borderWidth: 1, borderRadius: 4 }]
+        },
+        options: { indexAxis: 'y', responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { grid: { color: gridColor }, ticks: { ...tickStyle, stepSize: 1 }, beginAtZero: true }, y: { grid: { display: false }, ticks: tickStyle } } }
+      });
+    }
+  }
+
+  // ── Log table ─────────────────────────────────────────
+  if (countEl) countEl.textContent = `${logs.length} record${logs.length!==1?'s':''}`;
+  if (tbody) {
+    if (logs.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:24px;color:var(--text3);">No maintenance records found.</td></tr>';
+    } else {
+      const STATUS_COLOR = { resolved:'var(--green)', ongoing:'var(--red)', monitoring:'var(--yellow)' };
+      tbody.innerHTML = logs.map(log => {
+        const comps = Array.isArray(log.components) ? log.components.join(', ') : (log.components||'—');
+        const devName = devices.find(d=>d.id===log.device_id)?.name || log.device_id;
+        return `
+          <tr>
+            <td style="font-family:var(--mono);font-size:11px;white-space:nowrap;">${new Date(log.created_at).toLocaleDateString()} <span style="color:var(--text3);">${new Date(log.created_at).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}</span></td>
+            <td><span style="font-weight:600;font-size:12px;">${devName}</span><br><span style="font-family:var(--mono);font-size:10px;color:var(--text3);">${log.device_id}</span></td>
+            <td>${ADMIN_TYPE_LABELS[log.type]||log.type}</td>
+            <td style="font-size:11px;color:var(--text2);">${comps}</td>
+            <td><span style="font-size:11px;font-weight:600;color:${STATUS_COLOR[log.status]||'var(--text3)'};">${(log.status||'').toUpperCase()}</span></td>
+            <td style="font-size:11px;color:var(--text2);">${log.performed_by||'Manager'}</td>
+            <td style="font-size:11px;color:var(--text3);max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${log.notes||''}">${log.notes||'—'}</td>
+          </tr>
+        `;
+      }).join('');
+    }
   }
 }
 
@@ -2712,6 +2990,15 @@ function initializeAdmin() {
   if (page === 'alerts') loadAlerts();
   if (page === 'reports') loadReports();
   if (page === 'users') loadUsers();
+
+  // Track last known device statuses to detect management-driven changes
+  let lastKnownDeviceStatuses = {};
+
+  // Seed device status snapshot so first poll doesn't fire false change toasts
+  Database.getDevices().then(devs => {
+    (devs || []).forEach(d => { lastKnownDeviceStatuses[d.device_id] = d.status; });
+  }).catch(() => {});
+
       if (page === 'settings') {
     const settings = JSON.parse(localStorage.getItem('smsSettings') || '{}');
     if (settings.devicePhone) document.getElementById('device-phone').value = settings.devicePhone;
@@ -2788,6 +3075,33 @@ function initializeAdmin() {
         console.log('🔇 System Offline: Alert and Toast suppression active.');
       }
       
+      // ── Detect management-driven device status changes ──
+      try {
+        const freshDevices = await Database.getDevices();
+        (freshDevices || []).forEach(dbDev => {
+          const prev = lastKnownDeviceStatuses[dbDev.device_id];
+          const curr = dbDev.status;
+          if (prev !== undefined && prev !== curr) {
+            // Status was changed externally (by management)
+            const devName = dbDev.name || dbDev.device_id;
+            const isOnline = curr === 'online' || curr === 'active';
+            const isOffline = curr === 'offline';
+            const isMaint  = curr === 'maintenance';
+            const toastType = isOnline ? 'success' : isMaint ? 'warn' : 'error';
+            const toastTitle = isMaint ? `${devName} — Maintenance Mode`
+                             : isOnline ? `${devName} — Back Online`
+                             : `${devName} — Marked Offline`;
+            const toastMsg = `Status updated by Management: ${prev} → ${curr}`;
+            showDashboardToast(toastType, toastTitle, toastMsg, 7000);
+            logRoleActivity('system', toastType === 'success' ? 'success' : toastType === 'warn' ? 'warn' : 'danger',
+              `Device ${dbDev.device_id} status changed by Management: ${prev} → ${curr}`, 'device');
+            // Refresh devices page if active
+            if (document.body.dataset.page === 'devices') loadDevices();
+          }
+          lastKnownDeviceStatuses[dbDev.device_id] = curr;
+        });
+      } catch (e) { /* silent — non-critical */ }
+
       await checkStaleSMS();
 
       // Background badge refresh for all pages

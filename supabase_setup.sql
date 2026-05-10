@@ -307,3 +307,40 @@ CREATE POLICY "allow_anon_insert_activity"
 
 CREATE INDEX IF NOT EXISTS idx_activity_created_at
   ON system_activity (created_at DESC);
+
+-- ============================================================
+--  MAINTENANCE LOGS TABLE
+--  Stores device maintenance records logged by management
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS maintenance_logs (
+  id            BIGSERIAL PRIMARY KEY,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  device_id     TEXT NOT NULL REFERENCES devices(device_id) ON DELETE CASCADE,
+  type          TEXT NOT NULL CHECK (type IN (
+                  'inspection', 'sensor_replacement', 'calibration',
+                  'cleaning', 'firmware_update', 'repair', 'other'
+                )),
+  components    TEXT[] DEFAULT '{}',   -- e.g. ARRAY['ESP32','DHT11']
+  notes         TEXT,
+  status        TEXT NOT NULL DEFAULT 'resolved' CHECK (status IN (
+                  'resolved', 'ongoing', 'monitoring'
+                )),
+  performed_by  TEXT DEFAULT 'Manager'
+);
+
+-- Index for fast per-device lookups
+CREATE INDEX IF NOT EXISTS idx_maintenance_logs_device_id
+  ON maintenance_logs (device_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_maintenance_logs_created_at
+  ON maintenance_logs (created_at DESC);
+
+-- Enable RLS
+ALTER TABLE maintenance_logs ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "allow_anon_select_maintenance"
+  ON maintenance_logs FOR SELECT TO anon USING (true);
+
+CREATE POLICY "allow_anon_insert_maintenance"
+  ON maintenance_logs FOR INSERT TO anon WITH CHECK (true);

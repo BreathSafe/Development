@@ -3,9 +3,8 @@ const NAV_CONFIG = [
   { id: 'overview', title: 'System Overview', icon: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>', adminHref: 'overview.html', mgmtHref: '#overview', roles: ['admin', 'management'] },
   { section: 'Devices', roles: ['admin', 'management'] },
   { id: 'devices', title: 'Device Management', icon: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8m-4-4v4"/></svg>', adminHref: 'devices.html', mgmtHref: '#devices', roles: ['admin', 'management'] },
-  { id: 'map', title: 'Device Map', icon: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/><line x1="8" y1="2" x2="8" y2="18"/><line x1="16" y1="6" x2="16" y2="22"/></svg>', mgmtHref: '#map', roles: ['management'] },
   { id: 'alerts', title: 'System Alerts', icon: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>', adminHref: 'alerts.html', mgmtHref: '#alerts', roles: ['admin', 'management'] },
-  { id: 'reports', title: 'Analytics & Reports', icon: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/><line x1="2" y1="20" x2="22" y2="20"/></svg>', adminHref: 'reports.html', mgmtHref: '#analytics', roles: ['admin', 'management'] },
+  { id: 'reports', title: 'Analytics Report', icon: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>', adminHref: 'reports.html', mgmtHref: '#reports', roles: ['admin', 'management'] },
   { section: 'Administration', roles: ['admin'] },
   { id: 'users', title: 'User Accounts', icon: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>', adminHref: 'users.html', roles: ['admin'] },
   { section: 'Settings', roles: ['admin'] },
@@ -38,7 +37,6 @@ document.addEventListener('DOMContentLoaded', () => {
       const activeClass = isActive ? ' active' : '';
       let badgeHtml = '';
       if (item.id === 'alerts') badgeHtml = `<span class="nav-badge" id="${role === 'admin' ? 'alert-nav-badge' : 'danger-alert-badge'}">0</span>`;
-      if (item.id === 'devices' && role === 'management') badgeHtml = `<span class="nav-badge" id="alert-badge">0</span>`;
 
       if (role === 'management') {
         const sectionId = item.mgmtHref.replace('#', '');

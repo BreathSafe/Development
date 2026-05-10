@@ -662,6 +662,12 @@ async function handleLogin(event) {
       if (user.role === 'admin') {
         window.location.href = 'roles/admin/overview.html';
       } else if (user.role === 'management') {
+        // Queue a welcome toast to show after the management page loads
+        sessionStorage.setItem('mgmt_toast', JSON.stringify({
+          type: 'success',
+          title: `Welcome back, ${user.name}`,
+          message: `Signed in as Management · ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+        }));
         window.location.href = 'roles/management/dashboard.html';
       } else {
         hideLogin();
