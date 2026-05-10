@@ -146,6 +146,8 @@ let alertLog = [
 ];
 let maps = {};
 let markers = {};
+// NOTE: Device map UI removed from management dashboard; keep vars for backward compatibility.
+
 let modalMap = null;
 let modalMarker = null;
 
@@ -173,6 +175,41 @@ function aqiLabel(aqi) {
   return 'Hazardous';
 }
 
+function componentStatusFromLatestReading(device, latest) {
+  // Heuristic component status based on presence of latest reading fields.
+  // Returns: { esp32, dht11, mq135, gps, sim900 }
+  const nowOk = latest?.created_at ? (Date.now() - new Date(latest.created_at).getTime()) <= (90 * 1000) : false;
+
+  return {
+    esp32: {
+      ok: nowOk,
+      label: nowOk ? 'ESP32 OK' : 'ESP32 offline',
+      color: nowOk ? 'var(--green)' : 'var(--red)'
+    },
+    dht11: {
+      ok: nowOk && latest?.temperature !== null && latest?.temperature !== undefined && latest?.humidity !== null && latest?.humidity !== undefined,
+      label: (nowOk ? 'DHT11 OK' : 'DHT11 inactive'),
+      color: (nowOk && latest?.temperature !== null && latest?.humidity !== null) ? 'var(--teal)' : 'var(--red)'
+    },
+    mq135: {
+      ok: nowOk && (latest?.mq135_raw !== null && latest?.mq135_raw !== undefined || latest?.aqi_value !== null && latest?.aqi_value !== undefined),
+      label: (nowOk ? 'MQ135 OK' : 'MQ135 inactive'),
+      color: (nowOk && latest?.mq135_raw !== null) ? 'var(--accent)' : 'var(--red)'
+    },
+    gps: {
+      ok: nowOk && latest?.latitude !== null && latest?.latitude !== undefined && latest?.longitude !== null && latest?.longitude !== undefined,
+      label: (nowOk ? 'GPS OK' : 'GPS inactive'),
+      color: (nowOk && latest?.latitude !== null) ? '#60a5fa' : 'var(--red)'
+    },
+    sim900: {
+      ok: nowOk, // no explicit SIM900 heartbeat field in DB; best-effort using alive status
+      label: (nowOk ? 'SIM900 OK' : 'SIM900 inactive'),
+      color: nowOk ? 'var(--yellow)' : 'var(--red)'
+    }
+  };
+}
+
+
 function statusColor(status) {
   return status === 'online' ? 'var(--green)' : status === 'offline' ? 'var(--red)' : 'var(--yellow)';
 }
@@ -185,14 +222,66 @@ function showSection(section, element) {
   element.classList.add('active');
   if (section === 'dashboard') loadDashboard();
   if (section === 'devices') loadAllDevices();
-  if (section === 'map') loadFullMap();
+
   if (section === 'analytics') loadAnalytics();
   if (section === 'alerts') loadAlerts();
 }
 
 async function loadDashboard() {
   const readings = await Database.fetchLatestReadings(10);
-  
+
+  // --- AQI Summary bands (latest readings) ---
+  try {
+    const bandsEl = document.getElementById('aqi-summary-bands');
+    if (bandsEl) {
+      const counts = { good: 0, moderate: 0, unhealthy: 0, hazardous: 0 };
+      const arr = readings || [];
+      arr.forEach(r => {
+        const aqi = Number(r.aqi_value) || 0;
+        if (aqi <= 50) counts.good += 1;
+        else if (aqi <= 100) counts.moderate += 1;
+        else if (aqi <= 150) counts.unhealthy += 1;
+        else counts.hazardous += 1;
+      });
+
+      const total = (arr && arr.length > 0) ? arr.length : 1;
+      const mk = (label, key, color) => `
+        <div class="metric-card" style="background:rgba(255,255,255,0.03);border:1px solid var(--border);">
+          <div class="mc-label">${label}</div>
+          <div class="mc-value" style="color:${color};">${counts[key]}<span class="mc-unit" style="color:var(--text3);font-size:10px;">/${total}</span></div>
+        </div>`;
+
+      bandsEl.innerHTML = [
+        mk('Good (≤50)', 'good', '#22c55e'),
+        mk('Moderate (≤100)', 'moderate', '#f59e0b'),
+        mk('Unhealthy (≤150)', 'unhealthy', '#f97316'),
+        mk('Hazardous (>150)', 'hazardous', '#ef4444')
+      ].join('');
+    }
+  } catch (e) { /* ignore */ }
+
+  // --- Component Status (latest reading per first device heuristic) ---
+  try {
+    const compGrid = document.getElementById('component-status-grid');
+    if (compGrid) {
+      const latest = readings && readings.length > 0 ? readings[0] : null;
+      const device = devices && devices.length > 0 ? devices[0] : { id: 'AW-001' };
+      const st = componentStatusFromLatestReading(device, latest);
+      const item = (title, sub, color) => `
+        <div class="metric-card" style="background:rgba(255,255,255,0.03);border:1px solid var(--border);">
+          <div class="mc-label">${title}</div>
+          <div class="mc-value" style="color:${color}; font-size:14px;">${sub}</div>
+        </div>`;
+      compGrid.innerHTML = [
+        item('ESP32', st.esp32.label, st.esp32.color),
+        item('DHT11', st.dht11.label, st.dht11.color),
+        item('MQ135', st.mq135.label, st.mq135.color),
+        item('GPS', st.gps.label, st.gps.color),
+        item('SIM900', st.sim900.label, st.sim900.color)
+      ].join('');
+    }
+  } catch (e) { /* ignore */ }
+
   if (readings && readings.length > 0) {
     const latest = readings[0];
     devices[0] = {
@@ -210,6 +299,7 @@ async function loadDashboard() {
   const onlineDevices = devices.filter(d => d.status === 'online');
   const avgAQI = onlineDevices.length > 0 ? Math.round(onlineDevices.reduce((s,d) => s + d.aqi, 0) / onlineDevices.length) : 0;
   document.getElementById('mgmt-metrics').innerHTML = [
+
     { label:'Total Devices', val: devices.length, unit:'', color:'var(--accent)' },
     { label:'Online Devices', val: onlineDevices.length, unit:`/ ${devices.length}`, color:'var(--green)' },
     { label:'Avg AQI', val: avgAQI, unit:'', color:aqiColor(avgAQI) },
@@ -224,9 +314,9 @@ async function loadDashboard() {
   `).join('');
   loadDeviceGrid();
   loadDeviceList();
-  loadDeviceMap();
   updateAlertBadges();
 }
+
 
 function loadDeviceGrid() {
   document.getElementById('device-grid').innerHTML = devices.map(device => `
@@ -292,62 +382,15 @@ function loadDeviceList() {
   `;
 }
 
-function loadDeviceMap() {
-  const mapContainer = 'map';
-  if (!maps[mapContainer]) {
-    maps[mapContainer] = L.map(mapContainer, { zoomControl: true }).setView([8.4542, 124.6319], 15);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '© OpenStreetMap', maxZoom: 19
-    }).addTo(maps[mapContainer]);
-  }
-  const map = maps[mapContainer];
-  if (markers[mapContainer]) markers[mapContainer].forEach(mk => mk.remove());
-  markers[mapContainer] = [];
-  devices.forEach(device => {
-    if (device.status === 'offline' && device.aqi === 0) {
-      const marker = L.circleMarker([device.lat, device.lng], {
-        radius: 9, color: '#ef4444', fillColor: '#ef4444', fillOpacity: .4, weight: 2
-      }).addTo(map);
-      markers[mapContainer].push(marker);
-      return;
-    }
-    const color = device.status === 'maintenance' ? '#f59e0b' : aqiColor(device.aqi);
-    const marker = L.circleMarker([device.lat, device.lng], {
-      radius: 12, color, fillColor: color, fillOpacity: .75, weight: 2
-    }).addTo(map);
-    marker.bindPopup(`
-      <div style="min-width:180px;font-family:'Sora',sans-serif;">
-        <div style="font-weight:600;font-size:13px;margin-bottom:6px;">${device.name}</div>
-        <div style="font-size:11px;color:#8fa3bc;margin-bottom:8px;">${device.location} · <b>${device.id}</b></div>
-        ${device.status !== 'offline' && device.status !== 'maintenance' ? `
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
-          <div style="font-size:28px;font-weight:700;color:${color};font-family:'DM Mono',monospace;">${device.aqi}</div>
-          <div>
-            <div style="font-size:11px;font-weight:600;color:${color}">${aqiLabel(device.aqi)}</div>
-            <div style="font-size:10px;color:#8fa3bc;">AQI Index</div>
-          </div>
-        </div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;font-size:11px;">
-          <div>🌡 ${device.temp}°C</div><div>💧 ${device.hum}%</div>
-          <div>☁ CO₂ ${device.co2}ppm</div><div>🔋 ${device.battery}%</div>
-        </div>` : `
-        <div style="color:${statusColor(device.status)};font-size:12px;font-weight:600;text-transform:capitalize;">⚠ ${device.status}</div>
-        <div style="font-size:11px;color:#8fa3bc;">Last seen: ${device.lastSeen}</div>
-        `}
-      </div>
-    `);
-    markers[mapContainer].push(marker);
-  });
-}
+
 
 function switchDeviceView(view, element) {
   document.querySelectorAll('.tab').forEach(tab => tab.classList.remove('active'));
   element.classList.add('active');
   document.getElementById('device-grid-view').style.display = view === 'grid' ? 'block' : 'none';
   document.getElementById('device-list-view').style.display = view === 'list' ? 'block' : 'none';
-  document.getElementById('device-map-view').style.display = view === 'map' ? 'block' : 'none';
-  if (view === 'map') setTimeout(() => maps['map']?.invalidateSize(), 100);
 }
+
 
 async function loadAllDevices() {
   const table = document.getElementById('all-devices-table');
@@ -415,20 +458,7 @@ async function loadAllDevices() {
   `;
 }
 
-function loadFullMap() {
-  const mapContainer = 'map-full';
-  if (!maps[mapContainer]) {
-    maps[mapContainer] = L.map(mapContainer, { zoomControl: true }).setView([8.4542, 124.6319], 15);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '© OpenStreetMap', maxZoom: 19
-    }).addTo(maps[mapContainer]);
-  }
-  const tempMap = maps['map'];
-  maps['map'] = maps[mapContainer];
-  loadDeviceMap();
-  maps['map'] = tempMap;
-  setTimeout(() => maps[mapContainer]?.invalidateSize(), 100);
-}
+
 
 async function loadAnalytics() {
   const stats = await Database.fetchHourlyStats(24);
@@ -441,29 +471,41 @@ async function loadAnalytics() {
       <div><strong>Total Readings:</strong> ${stats.reduce((s, stat) => s + (stat.reading_count || 0), 0)}</div>
     </div>
   ` : '<p>No statistical data available</p>';
+
+  // Prevent chart stacking on repeated navigation.
+  if (window.__mgmtCharts?.length) {
+    window.__mgmtCharts.forEach(c => c?.destroy?.());
+  }
+  window.__mgmtCharts = [];
+
   setTimeout(() => {
     const aqiCtx = document.getElementById('aqi-chart');
     const tempHumCtx = document.getElementById('temp-hum-chart');
     if (!aqiCtx || !tempHumCtx || !window.Chart) return;
-    const chartLabels = stats ? stats.slice(0, 8).reverse().map(s => new Date(s.hour).toLocaleTimeString()) : [];
-    const avgAqiData = stats ? stats.slice(0, 8).reverse().map(s => s.avg_aqi || 0) : [];
-    const tempData = stats ? stats.slice(0, 8).reverse().map(s => s.avg_temp || 0) : [];
-    const humData = stats ? stats.slice(0, 8).reverse().map(s => s.avg_humidity || 0) : [];
-    new Chart(aqiCtx, {
+
+    const reversed = stats ? stats.slice(0, 8).reverse() : [];
+    const chartLabels = reversed.map(s => new Date(s.hour).toLocaleTimeString());
+    const avgAqiData = reversed.map(s => s.avg_aqi || 0);
+    const tempData = reversed.map(s => s.avg_temp || 0);
+    const humData = reversed.map(s => s.avg_humidity || 0);
+
+    window.__mgmtCharts.push(new Chart(aqiCtx, {
       type: 'line',
       data: { labels: chartLabels, datasets: [{ label: 'AQI', data: avgAqiData, borderColor: '#3b82f6', backgroundColor: 'rgba(59,130,246,0.1)', fill: true, tension: 0.4 }] },
       options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } }
-    });
-    new Chart(tempHumCtx, {
+    }));
+
+    window.__mgmtCharts.push(new Chart(tempHumCtx, {
       type: 'line',
       data: { labels: chartLabels, datasets: [
         { label: 'Temperature', data: tempData, borderColor: '#f97316', backgroundColor: 'rgba(249,115,22,0.1)', fill: true, tension: 0.4 },
         { label: 'Humidity', data: humData, borderColor: '#14b8a6', backgroundColor: 'rgba(20,184,166,0.1)', fill: true, tension: 0.4 }
       ] },
       options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } }, scales: { y: { beginAtZero: true } } }
-    });
+    }));
   }, 100);
 }
+
 
 async function loadAlerts() {
   const dbActivity = await Database.fetchActivity(15);
@@ -507,7 +549,24 @@ function updateAlertBadges(count) {
     badge.textContent = count > 0 ? count : '';
     badge.style.display = count > 0 ? 'block' : 'none';
   }
+
+  // Keep section badge in sync when nav.js uses it.
+  const dangerBadge = document.getElementById('danger-alert-badge');
+  if (dangerBadge) {
+    dangerBadge.textContent = count > 0 ? count : '';
+    dangerBadge.style.display = count > 0 ? 'block' : 'none';
+  }
 }
+
+function clearAlerts() {
+  showConfirmModal('Clear Alerts', 'Are you sure you want to clear all alerts from the alert log?', async () => {
+    alertLog = [];
+    localStorage.removeItem('alerts_last_read_mgmt');
+    await loadAlerts();
+    updateAlertBadges(0);
+  }, 'danger');
+}
+
 
 function showConfirmModal(title, message, onConfirm, type = 'danger') {
   let modal = document.getElementById('confirm-action-modal');
@@ -560,53 +619,18 @@ function showModal(modalId) {
   const modal = document.getElementById(modalId);
   if (modal) {
     modal.classList.add('open');
-    if (modalId === 'device-modal') {
-      setTimeout(initModalMap, 200);
-    }
+
   }
 }
 
-function initModalMap() {
-  const mapContainer = document.getElementById('modal-map');
-  if (!mapContainer) return;
 
-  const lat = parseFloat(document.getElementById('device-lat').value) || 8.4542;
-  const lng = parseFloat(document.getElementById('device-lng').value) || 124.6319;
-
-  if (!modalMap) {
-    modalMap = L.map('modal-map').setView([lat, lng], 13);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '© OpenStreetMap'
-    }).addTo(modalMap);
-
-    modalMap.on('click', (e) => {
-      const { lat, lng } = e.latlng;
-      updateModalMap(lat, lng);
-    });
-  } else {
-    modalMap.setView([lat, lng], 13);
-    modalMap.invalidateSize();
-  }
-
-  updateModalMap(lat, lng);
-}
 
 function updateModalMap(lat, lng) {
+  // Map UI removed; keep only coordinate fields.
   document.getElementById('device-lat').value = lat.toFixed(6);
   document.getElementById('device-lng').value = lng.toFixed(6);
-
-  if (!modalMarker) {
-    modalMarker = L.marker([lat, lng], { draggable: true }).addTo(modalMap);
-    modalMarker.on('dragend', (e) => {
-      const pos = e.target.getLatLng();
-      updateModalMap(pos.lat, pos.lng);
-    });
-  } else {
-    modalMarker.setLatLng([lat, lng]);
-  }
-  
-  if (modalMap) modalMap.panTo([lat, lng]);
 }
+
 
 async function detectLocation() {
   const deviceId = document.getElementById('device-id')?.value.trim();
@@ -766,35 +790,108 @@ async function initializeManagement() {
     if (defaultNav) showSection('dashboard', defaultNav);
   }
 
-  setInterval(async () => {
-    const readings = await Database.fetchLatestReadings(1);
-    if (readings && readings.length > 0) {
-      const latest = readings[0];
-      devices[0] = {
-        ...devices[0],
-        aqi: latest.aqi_value || 0,
-        temp: latest.temperature || 0,
-        hum: latest.humidity || 0,
-        co2: Math.round((latest.mq135_raw || 0) * 0.12),
-        lastSeen: 'Just now'
-      };
-      if (devices[0].aqi > devices[0].threshold) {
-        devices[0].alerts = 1;
-        if (!alertLog.some(a => a.msg.includes(`AQI ${devices[0].aqi}`))) {
-          alertLog.unshift({ type:'warn', msg:`Device ${devices[0].id}: AQI ${devices[0].aqi} exceeds threshold`, time:'Just now' });
-        }
+  const INACTIVITY_MS = 90 * 1000; // align with admin logic (90s => 3 missed packets)
+  let lastStatusByDevice = {}; // debounce per device activity logs
+
+  async function evaluateDeviceInactivity() {
+    if (!Array.isArray(devices) || devices.length === 0) return;
+
+    // Fetch the latest reading per device (simple approach: 1-by-1).
+    // This is acceptable for small device fleets; optimize later if needed.
+    const updates = await Promise.all(devices.map(async (dev) => {
+      try {
+        const r = await Database.getLatestDeviceLocation(dev.id); // returns latest reading row
+        return { dev, latest: r };
+      } catch {
+        return { dev, latest: null };
+      }
+    }));
+
+    for (const { dev, latest } of updates) {
+      const lastCreatedAt = latest?.created_at ? new Date(latest.created_at).getTime() : null;
+      const isAlive = lastCreatedAt ? (Date.now() - lastCreatedAt) <= INACTIVITY_MS : false;
+
+      // Component-ish fields for UI: only when alive; otherwise keep AQI/history stale.
+      if (isAlive) {
+        dev.aqi = latest?.aqi_value || dev.aqi || 0;
+        dev.temp = latest?.temperature || dev.temp || 0;
+        dev.hum = latest?.humidity || dev.hum || 0;
+        dev.co2 = Math.round((latest?.mq135_raw || 0) * 0.12);
+        dev.lastSeen = 'Just now';
+        dev.status = dev.status === 'maintenance' ? 'maintenance' : 'online';
       } else {
-        devices[0].alerts = 0;
+        dev.status = dev.status === 'maintenance' ? 'maintenance' : 'offline';
+        dev.lastSeen = 'Inactive';
+        dev.alerts = 0;
       }
-      const activeSection = document.querySelector('[id$="-section"]:not([style*="display: none"])');
-      if (activeSection) {
-        const sectionId = activeSection.id.replace('-section', '');
-        if (sectionId === 'dashboard') loadDashboard();
-        if (sectionId === 'devices') loadAllDevices();
-        if (sectionId === 'alerts') loadAlerts();
+
+      const prev = lastStatusByDevice[dev.id];
+      if (prev !== dev.status) {
+        lastStatusByDevice[dev.id] = dev.status;
+
+        // Persist status + log to system_activity (feeds management alert list)
+        try {
+          await Database.logActivity({
+            type: dev.status === 'offline' ? 'danger' : 'success',
+            message: dev.status === 'offline'
+              ? `Device ${dev.id} inactive: no readings within ${(INACTIVITY_MS / 1000).toFixed(0)}s. Marked offline.`
+              : `Device ${dev.id} activity restored. Marked online.`,
+            category: 'hardware',
+            actor: 'Manager',
+            device_id: dev.id
+          });
+        } catch { /* ignore */ }
+
+        // Update local DB device status for other pages
+        try {
+          if (dev.status !== 'maintenance') {
+            await fetch(`${DB_CONFIG.url}/rest/v1/${DB_TABLES.devices}?device_id=eq.${dev.id}`, {
+              method: 'PATCH',
+              headers: {
+                'apikey': DB_CONFIG.anonKey,
+                'Authorization': `Bearer ${DB_CONFIG.anonKey}`,
+                'Content-Type': 'application/json',
+                'Prefer': 'return=minimal'
+              },
+              body: JSON.stringify({ status: dev.status })
+            });
+          }
+        } catch { /* ignore */ }
       }
+
+      // AQI threshold bookkeeping only for online devices
+      if (dev.status === 'online' || dev.status === 'maintenance') {
+        if ((dev.aqi || 0) > (dev.threshold || 0)) {
+          dev.alerts = 1;
+        } else {
+          dev.alerts = 0;
+        }
+      }
+    }
+  }
+
+  // Initial evaluation before first 30s tick
+  evaluateDeviceInactivity();
+
+  setInterval(async () => {
+  try {
+      await evaluateDeviceInactivity();
+    } catch (e) {
+      console.error('Inactivity evaluation failed:', e);
+    }
+
+
+    // Refresh active section UI
+    const activeSection = document.querySelector('[id$="-section"]:not([style*="display: none"])');
+    if (activeSection) {
+      const sectionId = activeSection.id.replace('-section', '');
+      if (sectionId === 'dashboard') loadDashboard();
+      if (sectionId === 'devices') loadAllDevices();
+      if (sectionId === 'alerts') loadAlerts();
+      if (sectionId === 'analytics') loadAnalytics();
     }
   }, 30000);
 }
 
 document.addEventListener('DOMContentLoaded', initializeManagement);
+
