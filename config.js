@@ -12,6 +12,15 @@ const CONFIG = {
     // Number of latest readings to fetch
     fetchLimit: 10
   },
+  tables: {
+    readings: 'air_quality_readings',
+    devices: 'devices',
+    notificationUsers: 'notification_users',
+    smsNotifications: 'sms_notifications',
+    systemUsers: 'system_users',
+    hourlyStats: 'hourly_stats',
+    activity: 'system_activity'
+  },
   
   // Arduino Device Configuration
   devices: [

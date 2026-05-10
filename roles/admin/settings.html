@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BreathSafe — System Settings</title>
+  <link rel="stylesheet" href="admin.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Sora:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <script defer src="../../config.js"></script>
+  <script defer src="../../nav.js"></script>
+  <script defer src="admin.js"></script>
+</head>
+<body data-page="settings">
+<div id="app">
+  <header class="topbar">
+    <div class="topbar-logo"><img src="../../logo.png" style="height: 32px; width: auto; object-fit: contain;">BreathSafe Admin</div>
+    <div class="topbar-right"><div class="live-dot" title="Live data"></div><span style="font-size:11px;color:var(--text3)">Live</span><div class="user-chip"><div class="avatar">A</div><span style="color:var(--text2)">Admin</span></div><button class="btn btn-ghost btn-sm" onclick="logout()">Logout</button></div>
+  </header>
+  <div class="main">
+    <nav class="sidebar"></nav>
+    <div class="content">
+      <div class="panel-pad">
+        <div class="page-header"><div class="page-title">System Settings</div><div class="page-sub">Configure system parameters and thresholds</div></div>
+        <div class="card"><div class="card-head"><span class="card-title">Database Configuration</span></div><div class="card-body"><div class="form-group"><label class="form-label">Supabase URL</label><input class="form-input" type="text" id="supabase-url" value="https://hqptxgzpzuhsrybuyjoy.supabase.co"></div><div class="form-group"><label class="form-label">API Key</label><input class="form-input" type="text" id="supabase-key" value="sb_publishable_Vn85SyMOd3cToHzCliO5Jg_AX2BO_xY"></div><div class="form-group"><label class="form-label">Table Name</label><input class="form-input" type="text" id="table-name" value="air_quality_readings"></div><button class="btn btn-primary" onclick="saveSettings()">Save Settings</button></div></div>
+        <div class="card"><div class="card-head"><span class="card-title">AQI Thresholds</span></div><div class="card-body"><div class="form-group"><label class="form-label">Good AQI Max</label><input class="form-input" type="number" id="threshold-good" value="50"></div><div class="form-group"><label class="form-label">Moderate AQI Max</label><input class="form-input" type="number" id="threshold-moderate" value="100"></div><div class="form-group"><label class="form-label">Unhealthy AQI Max</label><input class="form-input" type="number" id="threshold-unhealthy" value="150"></div><button class="btn btn-primary" onclick="saveThresholds()">Save Thresholds</button></div></div>
+        <div class="card">
+          <div class="card-head">
+            <span class="card-title">📢 Community Awareness & Public Alerts</span>
+          </div>
+          <div class="card-body">
+            <div style="background:var(--bg3); padding:12px; border-radius:var(--radius); margin-bottom:20px; font-size:12px; border-left:4px solid var(--accent);">
+              <strong>Public Awareness Mission:</strong> These settings control the automated SMS advisories sent to students, faculty, and the local community. The goal is to provide timely environmental awareness and safety precautions.
+            </div>
+            <div class="form-group">
+              <label class="form-label">Alert Gateway Number</label>
+              <input class="form-input" type="text" id="device-phone" placeholder="+63XXXXXXXXXX" value="+639123456789">
+              <small style="color:var(--text2);font-size:11px;">The phone number of the ESP32 GSM module that broadcasts awareness alerts.</small>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Public Advisory Template (Moderate)</label>
+              <textarea class="form-input" id="sms-template" rows="3">BreatheSafe Community Advisory
+Location: {location}
+Time: {time}
+Air Quality: {air_quality}
+Health Note: Air quality is slightly degraded. Sensitive groups should be aware.
+Advice: Stay hydrated and consider limiting heavy outdoor exertion.</textarea>
+              <small style="color:var(--text2);font-size:11px;">Note: Templates are automatically adjusted based on the severity of environmental conditions.</small>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Awareness Broadcast Cooldown (minutes)</label>
+              <input class="form-input" type="number" id="sms-cooldown" value="30" min="5">
+              <small style="color:var(--text2);font-size:11px;">Prevents message fatigue by limiting how often alerts are sent to the same community member.</small>
+            </div>
+            <button class="btn btn-primary" onclick="saveSMSSettings()">Update Awareness Config</button>
+            <button class="btn btn-ghost" onclick="testSMS()" style="margin-left:8px;">📤 Broadcast Test</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

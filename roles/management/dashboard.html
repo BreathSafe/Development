@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BreathSafe — Management Dashboard</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Sora:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="management.css" />
+  <script src="../../config.js"></script>
+</head>
+<body>
+<div id="app">
+  <header class="topbar">
+    <div class="topbar-logo">
+      <img src="../../logo.png" style="height: 32px; width: auto; object-fit: contain;">
+      BreathSafe Management
+    </div>
+    <div class="topbar-right">
+      <div class="live-dot" title="Live data"></div>
+      <span style="font-size:11px;color:var(--text3)">Live</span>
+      <div class="user-chip">
+        <div class="avatar">M</div>
+        <span style="color:var(--text2)">Manager</span>
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="logout()">Logout</button>
+    </div>
+  </header>
+
+  <div class="main">
+    <nav class="sidebar"></nav>
+
+    <div class="content">
+      <div id="dashboard-section" class="panel-pad">
+        <div class="page-header">
+          <div class="page-title">Device Management Dashboard</div>
+          <div class="page-sub">Monitor and manage all air quality sensor nodes</div>
+        </div>
+        <div class="metrics-grid" id="mgmt-metrics"></div>
+
+        <div class="card" style="margin-top:14px;">
+          <div class="card-head">
+            <span class="card-title">AQI Summary</span>
+          </div>
+          <div class="card-body">
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;" id="aqi-summary-bands"></div>
+          </div>
+        </div>
+
+        <div class="card" style="margin-top:14px;">
+          <div class="card-head">
+            <span class="card-title">Component Status (Latest Readings)</span>
+          </div>
+          <div class="card-body">
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;" id="component-status-grid"></div>
+          </div>
+        </div>
+
+        <div class="tabs" id="device-tabs">
+          <div class="tab active" onclick="switchDeviceView('grid', this)">Grid View</div>
+          <div class="tab" onclick="switchDeviceView('list', this)">List View</div>
+        </div>
+        <div id="device-grid-view">
+          <div class="device-grid" id="device-grid"></div>
+        </div>
+        <div id="device-list-view" style="display: none;">
+
+          <div class="card">
+            <div class="tbl-wrap">
+              <table class="tbl" id="device-table"></table>
+            </div>
+          </div>
+        </div>
+
+      <div id="devices-section" class="panel-pad" style="display: none;">
+
+        <div class="page-header">
+          <div class="page-title">All Devices</div>
+          <div class="page-sub">Complete device inventory and status</div>
+        </div>
+        <div class="card">
+          <div class="card-head">
+            <span class="card-title">Device Inventory</span>
+            <button class="btn btn-primary btn-sm" onclick="showAddDeviceModal()">+ Add Device</button>
+          </div>
+          <div class="card-body">
+            <div class="tbl-wrap">
+              <table class="tbl" id="all-devices-table"></table>
+            </div>
+          </div>
+        </div>
+      </div>
+
+
+
+      <div id="analytics-section" class="panel-pad" style="display: none;">
+        <div class="page-header">
+          <div class="page-title">Analytics</div>
+          <div class="page-sub">Historical data analysis and trends</div>
+        </div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+          <div class="card">
+            <div class="card-head"><span class="card-title">AQI Trends (24h)</span></div>
+            <div class="card-body"><canvas id="aqi-chart" style="height: 200px;"></canvas></div>
+          </div>
+          <div class="card">
+            <div class="card-head"><span class="card-title">Temperature & Humidity</span></div>
+            <div class="card-body"><canvas id="temp-hum-chart" style="height: 200px;"></canvas></div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-head"><span class="card-title">Statistics Summary</span></div>
+          <div class="card-body"><div id="stats-summary"></div></div>
+        </div>
+      </div>
+
+      <div id="alerts-section" class="panel-pad" style="display: none;">
+        <div class="page-header">
+          <div class="page-title">Alert Log</div>
+          <div class="page-sub">System alerts and notifications history</div>
+        </div>
+        <div class="card">
+          <div class="card-head">
+            <span class="card-title">Recent Alerts</span>
+            <button class="btn btn-ghost btn-sm" onclick="clearAlerts()">Clear All</button>
+          </div>
+          <div class="card-body"><div id="alert-list"></div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal-bg" id="device-modal">
+  <div class="modal">
+    <div class="modal-head">
+      <span class="modal-title">Add Device</span>
+      <button class="modal-close" onclick="closeModal('device-modal')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group"><label class="form-label">Device Name</label><input class="form-input" id="device-name" placeholder="BreathSafe Monitor"></div>
+      <div class="form-group"><label class="form-label">Device ID</label><input class="form-input" id="device-id" placeholder="AW-001"></div>
+      <div class="form-group"><label class="form-label">Location</label><input class="form-input" id="device-location" placeholder="Building Name"></div>
+
+      <div style="margin-bottom: 15px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+          <label class="form-label" style="margin-bottom:0;">Coordinates</label>
+          <button class="btn btn-ghost btn-sm" onclick="detectLocation()" style="font-size:11px; padding: 4px 8px;">📍 Detect Device Location</button>
+        </div>
+        <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px;">
+          <input class="form-input" id="device-lat" placeholder="Latitude">
+          <input class="form-input" id="device-lng" placeholder="Longitude">
+        </div>
+        <div id="modal-map" style="height: 180px; border-radius: var(--radius); border: 1px solid var(--border); overflow: hidden;"></div>
+        <div style="font-size: 10px; color: var(--text3); margin-top: 5px;">Tip: Click on the map to set coordinates manually</div>
+      </div>
+
+      <div class="form-group"><label class="form-label">Status</label><select class="form-select" id="device-status"><option value="online">Online</option><option value="offline">Offline</option><option value="maintenance">Maintenance</option></select></div>
+      <div class="form-group"><label class="form-label">Alert Threshold (AQI)</label><input class="form-input" type="number" id="device-threshold" placeholder="100"></div>
+    </div>
+    <div class="modal-foot"><button class="btn btn-ghost" onclick="closeModal('device-modal')">Cancel</button><button class="btn btn-primary" onclick="saveDevice()">Add Device</button></div>
+  </div>
+</div>
+
+<div class="modal-bg" id="sync-error-modal">
+  <div class="modal" style="max-width: 400px; text-align: center;">
+    <div class="modal-head" style="justify-content: center; border-bottom: none;">
+      <div style="font-size: 48px; margin-bottom: 10px;">⚠️</div>
+    </div>
+    <div class="modal-body" style="padding-top: 0;">
+      <h3 style="margin-bottom: 12px; color: var(--text);">GPS Sync Failed</h3>
+      <p id="sync-error-msg" style="font-size: 13px; color: var(--text2); line-height: 1.5;"></p>
+      <div style="margin-top: 20px; padding: 12px; background: var(--bg3); border-radius: var(--radius); text-align: left; font-size: 11px; color: var(--text3);">
+        <strong>Troubleshooting:</strong><br>
+        • Check if Device ID is correct<br>
+        • Ensure hardware is powered on<br>
+        • Ensure GPS module has a satellite fix (clear sky view)
+      </div>
+    </div>
+    <div class="modal-foot" style="justify-content: center; border-top: none;">
+      <button class="btn btn-primary" onclick="closeModal('sync-error-modal')">I Understand</button>
+    </div>
+  </div>
+</div>
+
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script defer src="../../nav.js"></script>
+<script defer src="management.js"></script>
+</body>
+</html>
+

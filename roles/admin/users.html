@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BreathSafe — User Management</title>
+  <link rel="stylesheet" href="admin.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Sora:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <script defer src="../../config.js"></script>
+  <script defer src="../../nav.js"></script>
+  <script defer src="admin.js"></script>
+</head>
+<body data-page="users">
+<div id="app">
+  <header class="topbar">
+    <div class="topbar-logo"><img src="../../logo.png" style="height: 32px; width: auto; object-fit: contain;">BreathSafe Admin</div>
+    <div class="topbar-right"><div class="live-dot" title="Live data"></div><span style="font-size:11px;color:var(--text3)">Live</span><div class="user-chip"><div class="avatar">A</div><span style="color:var(--text2)">Admin</span></div><button class="btn btn-ghost btn-sm" onclick="logout()">Logout</button></div>
+  </header>
+  <div class="main">
+    <nav class="sidebar"></nav>
+    <div class="content">
+      <div class="panel-pad">
+        <div class="page-header"><div class="page-title">User Management</div><div class="page-sub">Manage user accounts and permissions</div></div>
+        <div class="card"><div class="card-head"><span class="card-title">System Users</span><button class="btn btn-primary btn-sm" onclick="showAddUserModal()">+ Add User</button></div><div class="card-body"><div class="tbl-wrap"><table class="tbl" id="users-table"></table></div></div></div>
+        <div class="card" style="margin-top: 16px;">
+          <div class="card-head">
+            <span class="card-title">📢 Community Awareness Recipients</span>
+            <div style="display: flex; gap: 10px; align-items: center;">
+              <div style="display: flex; align-items: center; gap: 10px; background: rgba(255,255,255,0.03); padding: 5px 12px; border-radius: 20px; border: 1px solid var(--border); height: 32px;">
+                <span id="auto-sms-status-label" style="font-size: 10px; font-weight: 700; color: var(--green); text-transform: uppercase; letter-spacing: 0.05em; min-width: 120px;">Auto-Broadcast: ON</span>
+                <label class="switch">
+                  <input type="checkbox" id="global-auto-sms" checked onchange="toggleAutoSMS()">
+                  <span class="slider"></span>
+                </label>
+              </div>
+              <button class="btn btn-primary btn-sm" onclick="showAddSMSUserModal()" style="height: 32px; font-weight: 600;">+ Register Recipient</button>
+            </div>
+          </div>
+          <div class="card-body">
+            <div class="tbl-wrap">
+              <table class="tbl" id="sms-users-table">
+                <thead><tr><th>Name</th><th>Phone Number</th><th>Threshold</th><th>Status</th><th>Last Advisory</th><th>Actions</th></tr></thead>
+                <tbody id="sms-users-body"><tr><td colspan="6" style="text-align:center;color:var(--text2);">Loading recipients...</td></tr></tbody>
+              </table>
+            </div>
+            <div style="margin-top: 12px; padding: 12px; background: var(--bg3); border-radius: var(--radius); font-size: 11px; color: var(--text2);">
+              <strong>💡 Community Awareness System:</strong><br>
+              • Subscribers receive automated health advisories when air quality reaches critical levels.<br>
+              • The goal is to ensure the local community can take timely safety measures.<br>
+              • Broadcasts are managed via the ESP32 GSM gateway with built-in message cooldowns.
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="modal-bg" id="user-modal"><div class="modal"><div class="modal-head"><span class="modal-title">Add User</span><button class="modal-close" onclick="closeModal('user-modal')">✕</button></div><div class="modal-body"><div class="form-group"><label class="form-label">Name</label><input class="form-input" id="user-name" placeholder="Enter user name"></div><div class="form-group"><label class="form-label">Email</label><input class="form-input" type="email" id="user-email" placeholder="user@example.com"></div><div class="form-group"><label class="form-label">Password</label><input class="form-input" type="password" id="user-password" placeholder="Min. 8 characters"></div><div class="form-group"><label class="form-label">📱 Phone Number (for awareness alerts)</label><input class="form-input" type="tel" id="user-phone" placeholder="+63XXXXXXXXXX"><small style="color:var(--text2);font-size:11px;">Format: +63 followed by 10 digits (e.g., +639123456789)</small></div><div class="form-group"><label class="form-label">Role</label><select class="form-select" id="user-role"><option value="admin">Admin</option><option value="management">Management</option><option value="viewer">Viewer</option></select></div><div class="form-group"><label class="form-label">Department</label><input class="form-input" id="user-dept" placeholder="Department"></div><div class="form-group"><label class="form-label">Awareness Threshold (AQI)</label><input class="form-input" type="number" id="user-aqi-threshold" value="100" min="1" max="500"><small style="color:var(--text2);font-size:11px;">Recipient will receive advisory when AQI exceeds this value</small></div><div class="form-group"><label class="form-checkbox" style="display:flex;align-items:center;gap:8px;cursor:pointer;"><input type="checkbox" id="user-sms-enabled" checked style="width:auto;"><span>Receive Public Advisories</span></label></div></div><div class="modal-foot"><button class="btn btn-ghost" onclick="closeModal('user-modal')">Cancel</button><button class="btn btn-primary" onclick="saveUser()">Create User</button></div></div></div>
+<div class="modal-bg" id="sms-user-modal"><div class="modal"><div class="modal-head"><span class="modal-title">📢 Register for Community Advisories</span><button class="modal-close" onclick="closeModal('sms-user-modal')">✕</button></div><div class="modal-body"><div class="form-group"><label class="form-label">Full Name</label><input class="form-input" id="sms-user-name" placeholder="Enter your full name"></div><div class="form-group"><label class="form-label">📱 Phone Number</label><input class="form-input" type="tel" id="sms-user-phone" placeholder="+63XXXXXXXXXX"><small style="color:var(--text2);font-size:11px;">Format: +63 followed by 10 digits (e.g., +639123456789)</small></div><div class="form-group"><label class="form-label">Email (Optional)</label><input class="form-input" type="email" id="sms-user-email" placeholder="user@example.com"></div><div class="form-group"><label class="form-label">Awareness Threshold (AQI)</label><input class="form-input" type="number" id="sms-user-threshold" value="100" min="1" max="500"><small style="color:var(--text2);font-size:11px;">You will receive an advisory when AQI exceeds this value in your zone</small></div><div style="padding: 12px; background: var(--bg3); border-radius: var(--radius); margin-top: 12px;"><strong style="font-size: 12px; color: var(--text);">📝 Advisory Preview:</strong><div style="font-size: 11px; color: var(--text2); margin-top: 6px; font-style: italic;">"BreatheSafe Community Advisory: Air quality in [Location] has reached Unhealthy levels. Please take necessary safety precautions."</div></div></div><div class="modal-foot"><button class="btn btn-ghost" onclick="closeModal('sms-user-modal')">Cancel</button><button class="btn btn-primary" onclick="saveSMSUser()">Register for Alerts</button></div></div></div>
+</body>
+</html>

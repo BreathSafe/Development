@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>AirWatch — Public Air Quality Dashboard</title>
+<title>BreathSafe — Public Air Quality Dashboard</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Sora:wght@300;400;500;600;700&display=swap" rel="stylesheet">
@@ -108,8 +108,38 @@ html, body { height: 100%; overflow: hidden; font-family: var(--font); backgroun
 .alert-time { margin-left: auto; color: var(--text3); white-space: nowrap; padding-left: 8px; font-size: 10.5px; }
 
 /* Login Button */
-.login-btn { background: var(--accent); color: white; border: none; padding: 6px 12px; border-radius: 20px; font-size: 11px; cursor: pointer; transition: all .2s; }
-.login-btn:hover { background: #2563eb; }
+.login-btn { background: var(--accent); color: white; border: none; padding: 8px 16px; border-radius: 20px; font-size: 12px; font-weight: 500; cursor: pointer; transition: all .2s; box-shadow: 0 2px 8px rgba(59,130,246,0.25); }
+.login-btn:hover { background: #2563eb; transform: translateY(-1px); box-shadow: 0 4px 12px rgba(59,130,246,0.35); }
+
+/* Login Modal */
+.login-modal { position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 9999; display: none; align-items: center; justify-content: center; backdrop-filter: blur(8px); animation: fadeIn 0.2s ease-out; }
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+.login-modal.active { display: flex; }
+.login-container { background: var(--bg2); border: 1px solid var(--border2); border-radius: 20px; width: 420px; max-width: 95vw; overflow: hidden; box-shadow: 0 25px 60px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.05); animation: slideUp 0.3s ease-out; }
+@keyframes slideUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+.login-header { padding: 32px 32px 24px; text-align: center; background: linear-gradient(135deg, var(--bg3) 0%, var(--bg2) 100%); border-bottom: 1px solid var(--border); }
+.login-logo { height: 120px; width: auto; margin-bottom: 10px; filter: drop-shadow(0 4px 12px rgba(59,130,246,0.3)); }
+.login-title { font-size: 20px; font-weight: 700; color: var(--text); letter-spacing: -0.02em; }
+.login-subtitle { font-size: 13px; color: var(--text3); margin-top: 6px; }
+.login-body { padding: 32px; }
+.login-form-group { margin-bottom: 20px; }
+.login-label { display: block; font-size: 11px; font-weight: 600; color: var(--text3); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 8px; }
+.login-input { width: 100%; background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; color: var(--text); font-family: inherit; font-size: 14px; outline: none; transition: all 0.2s; }
+.login-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(59,130,246,0.15); }
+.login-input::placeholder { color: var(--text3); }
+.login-password-wrapper { position: relative; }
+.login-password-toggle { position: absolute; right: 14px; top: 50%; transform: translateY(-50%); background: none; border: none; color: var(--text3); cursor: pointer; padding: 6px; border-radius: 6px; transition: all 0.2s; display: flex; align-items: center; justify-content: center; }
+.login-password-toggle:hover { color: var(--text2); background: var(--bg3); }
+.login-password-toggle svg { width: 18px; height: 18px; }
+.login-error { display: none; padding: 12px 16px; border-radius: 10px; background: rgba(239,68,68,0.12); border: 1px solid rgba(239,68,68,0.25); color: #fca5a5; font-size: 13px; margin-bottom: 20px; text-align: center; animation: shake 0.4s ease-in-out; }
+@keyframes shake { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-5px); } 75% { transform: translateX(5px); } }
+.login-submit { width: 100%; background: linear-gradient(135deg, var(--accent) 0%, #2563eb 100%); color: white; border: none; border-radius: 10px; padding: 16px; font-weight: 600; font-size: 14px; cursor: pointer; transition: all 0.2s; box-shadow: 0 4px 14px rgba(59,130,246,0.35); }
+.login-submit:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(59,130,246,0.45); }
+.login-submit:active { transform: translateY(0); }
+.login-submit:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
+.login-cancel { margin-top: 24px; text-align: center; }
+.login-cancel-btn { background: none; border: none; color: var(--text3); cursor: pointer; font-size: 12px; font-weight: 500; transition: color 0.2s; }
+.login-cancel-btn:hover { color: var(--text2); text-decoration: underline; }
 
 /* Responsive */
 @media (max-width: 768px) {
@@ -122,8 +152,8 @@ html, body { height: 100%; overflow: hidden; font-family: var(--font); backgroun
   <!-- TOP BAR -->
   <header class="topbar">
     <div class="topbar-logo">
-      <div class="logo-icon">🌬</div>
-      AirWatch
+      <img src="logo.png" style="height: 56px; width: auto; object-fit: contain;">
+      BreathSafe
     </div>
     <div class="topbar-right">
       <div class="live-dot" title="Live data"></div>
@@ -153,6 +183,7 @@ html, body { height: 100%; overflow: hidden; font-family: var(--font); backgroun
           <div style="font-size:13px;color:#fcd34d;" id="pub-rec">Loading air quality data...</div>
         </div>
       </div>
+      <div id="conn-error-banner" style="display:none;margin-top:12px;padding:10px 14px;border-radius:8px;background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.25);color:#fca5a5;font-size:12px;"></div>
     </div>
 
     <!-- MAIN CONTENT -->
@@ -194,37 +225,71 @@ html, body { height: 100%; overflow: hidden; font-family: var(--font); backgroun
 </div>
 
 <!-- MODALS -->
-<div id="loginModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:9999;align-items:center;justify-content:center;backdrop-filter:blur(4px);">
-  <div style="background:var(--bg2);border:1px solid var(--border2);border-radius:var(--radius2);width:380px;max-width:95vw;">
-    <div style="padding:18px 20px 14px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;">
-      <span style="font-size:15px;font-weight:600;">Sign In</span>
-      <button onclick="hideLogin()" style="background:none;border:none;color:var(--text3);cursor:pointer;font-size:18px;">✕</button>
+<div id="loginModal" class="login-modal">
+  <div class="login-container">
+    <div class="login-header">
+      <img src="logo.png" class="login-logo" alt="BreathSafe Logo">
+      <div class="login-title">BreathSafe Login</div>
+      <div class="login-subtitle">Secure Administrative Portal</div>
     </div>
-    <div style="padding:20px;">
-      <div style="display:grid;gap:8px;">
-        <button onclick="goToAdmin()" style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;background:var(--accent);color:white;border:none;border-radius:var(--radius);cursor:pointer;">
-          <span>🛡 Admin</span><span style="font-size:11px;opacity:.7">Full access</span>
+    
+    <div class="login-body">
+      <form id="loginForm" onsubmit="handleLogin(event)">
+        <div class="login-form-group">
+          <label for="loginEmail" class="login-label">Email Address</label>
+          <input type="email" id="loginEmail" required class="login-input" placeholder="Enter your email">
+        </div>
+        
+        <div class="login-form-group">
+          <label for="loginPass" class="login-label">Password</label>
+          <div class="login-password-wrapper">
+            <input type="password" id="loginPass" required class="login-input" placeholder="Enter your password">
+            <button type="button" onclick="togglePasswordVisibility()" id="passToggleBtn" class="login-password-toggle" title="Toggle password visibility" aria-label="Toggle password visibility">
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                <path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+              </svg>
+            </button>
+          </div>
+        </div>
+        
+        <div id="loginError" class="login-error">
+          Invalid credentials. Please try again.
+        </div>
+
+        <button type="submit" id="loginSubmitBtn" class="login-submit">
+          Secure Sign In
         </button>
-        <button onclick="goToManagement()" style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;background:var(--bg3);color:var(--text);border:1px solid var(--border);border-radius:var(--radius);cursor:pointer;">
-          <span>⚙️ Management</span><span style="font-size:11px;opacity:.7">Device control</span>
-        </button>
-        <button onclick="hideLogin()" style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;background:var(--bg3);color:var(--text);border:1px solid var(--border);border-radius:var(--radius);cursor:pointer;">
-          <span>🌍 Public View</span><span style="font-size:11px;opacity:.7">Read-only</span>
-        </button>
+      </form>
+      
+      <div class="login-cancel">
+        <button onclick="hideLogin()" class="login-cancel-btn">Cancel and return to Public View</button>
       </div>
     </div>
   </div>
 </div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="config.js"></script>
 <script>
 // ═══════════════════════════════════════════
 // SUPABASE DATABASE CONNECTION
 // ═══════════════════════════════════════════
-const SUPABASE_CONFIG = {
+const DB_CONFIG = window.CONFIG?.database || {
   url: 'https://hqptxgzpzuhsrybuyjoy.supabase.co',
   anonKey: 'sb_publishable_Vn85SyMOd3cToHzCliO5Jg_AX2BO_xY',
-  table: 'air_quality_readings'
+  table: 'air_quality_readings',
+  refreshInterval: 30000,
+  fetchLimit: 10
+};
+
+const DB_TABLES = window.CONFIG?.tables || {
+  readings: 'air_quality_readings',
+  devices: 'devices',
+  notificationUsers: 'notification_users',
+  smsNotifications: 'sms_notifications',
+  systemUsers: 'system_users',
+  hourlyStats: 'hourly_stats'
 };
 
 // Database connection module
@@ -232,22 +297,24 @@ const Database = {
   async fetchLatestReadings(limit = 10) {
     try {
       const response = await fetch(
-        `${SUPABASE_CONFIG.url}/rest/v1/${SUPABASE_CONFIG.table}?order=created_at.desc&limit=${limit}`,
+        `${DB_CONFIG.url}/rest/v1/${DB_TABLES.readings}?order=created_at.desc&limit=${limit}`,
         {
           headers: {
-            'apikey': SUPABASE_CONFIG.anonKey,
-            'Authorization': `Bearer ${SUPABASE_CONFIG.anonKey}`
+            'apikey': DB_CONFIG.anonKey,
+            'Authorization': `Bearer ${DB_CONFIG.anonKey}`
           }
         }
       );
-      
+
       if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        const errText = await response.text().catch(() => response.statusText);
+        throw new Error(`HTTP ${response.status}: ${errText}`);
       }
-      
+
       return await response.json();
     } catch (error) {
       console.error('Database fetch error:', error);
+      showConnError(error.message);
       return null;
     }
   },
@@ -359,6 +426,7 @@ async function updatePublicDashboard() {
   if (readings && readings.length > 0) {
     console.log(`✅ Public Dashboard: Found ${readings.length} real readings from Supabase`);
     usingRealData = true;
+    clearConnError();
     const latestReading = readings[0];
     
     displayData = {
@@ -430,30 +498,44 @@ async function updatePublicDashboard() {
       </div>
     </div>`;
   
-  // Update alerts based on real data
+  // Update alerts based on real data — only when device is active
   const alerts = [];
-  if (readings && readings.length > 0) {
-    readings.slice(0, 4).forEach(reading => {
-      if (reading.aqi_value > 100) {
-        alerts.push({
-          type: 'danger',
-          msg: `AQI ${reading.aqi_value} exceeds safe threshold`,
-          time: Database.formatTimeAgo(reading.created_at)
-        });
-      } else if (reading.aqi_value > 50) {
-        alerts.push({
-          type: 'warn',
-          msg: `Moderate air quality detected (AQI: ${reading.aqi_value})`,
-          time: Database.formatTimeAgo(reading.created_at)
-        });
-      }
-    });
-  }
-  
-  if (alerts.length === 0) {
+
+  if (device.status === 'offline') {
     alerts.push({
-      type: 'success',
-      msg: 'Air quality is within safe limits',
+      type: 'warn',
+      msg: 'Device is currently offline. Alerts paused until connection is restored.',
+      time: 'Just now'
+    });
+  } else if (readings && readings.length > 0) {
+    // Device is online — process air quality alerts
+    const latestReading = readings[0];
+    const aqi = latestReading.aqi_value || 0;
+
+    if (aqi > 100) {
+      alerts.push({
+        type: 'danger',
+        msg: `AQI ${aqi} exceeds safe threshold`,
+        time: Database.formatTimeAgo(latestReading.created_at)
+      });
+    } else if (aqi > 50) {
+      alerts.push({
+        type: 'warn',
+        msg: `Community Advisory: Slightly degraded air quality at ${device.location}. Sensitive individuals should consider precautions.`,
+        time: Database.formatTimeAgo(latestReading.created_at)
+      });
+    } else {
+      alerts.push({
+        type: 'success',
+        msg: 'Air quality is within safe limits',
+        time: Database.formatTimeAgo(latestReading.created_at)
+      });
+    }
+  } else {
+    // Device is online but no readings available yet
+    alerts.push({
+      type: 'info',
+      msg: 'Device is online. Waiting for air quality data...',
       time: 'Just now'
     });
   }
@@ -477,22 +559,127 @@ async function updatePublicDashboard() {
 }
 
 // ═══════════════════════════════════════════
+// CONNECTION ERROR HELPERS
+// ═══════════════════════════════════════════
+function showConnError(msg) {
+  const banner = document.getElementById('conn-error-banner');
+  if (banner) {
+    banner.textContent = 'Data fetch failed: ' + msg;
+    banner.style.display = 'block';
+  }
+}
+function clearConnError() {
+  const banner = document.getElementById('conn-error-banner');
+  if (banner) banner.style.display = 'none';
+}
+
+// ═══════════════════════════════════════════
 // LOGIN FUNCTIONS
 // ═══════════════════════════════════════════
 function showLogin() {
-  document.getElementById('loginModal').style.display = 'flex';
+  document.getElementById('loginModal').classList.add('active');
 }
 
 function hideLogin() {
-  document.getElementById('loginModal').style.display = 'none';
+  document.getElementById('loginModal').classList.remove('active');
 }
 
-function goToAdmin() {
-  window.location.href = 'admin.html';
+function togglePasswordVisibility() {
+  const passInput = document.getElementById('loginPass');
+  const btn = document.getElementById('passToggleBtn');
+
+  if (passInput.type === 'password') {
+    passInput.type = 'text';
+    btn.title = 'Hide password';
+    btn.setAttribute('aria-label', 'Hide password');
+    btn.innerHTML = `
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
+      </svg>
+    `;
+  } else {
+    passInput.type = 'password';
+    btn.title = 'Show password';
+    btn.setAttribute('aria-label', 'Show password');
+    btn.innerHTML = `
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+        <path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+      </svg>
+    `;
+  }
 }
 
-function goToManagement() {
-  window.location.href = 'management.html';
+async function handleLogin(event) {
+  event.preventDefault();
+  const email = document.getElementById('loginEmail').value;
+  // Password is not used for auth in this app (system_users table may not expose it via RLS).
+  // Keeping the UI so users can still type it and use the "See password" toggle.
+  const pass = document.getElementById('loginPass').value;
+  const errorEl = document.getElementById('loginError');
+  const submitBtn = document.getElementById('loginSubmitBtn');
+  
+  errorEl.style.display = 'none';
+  submitBtn.disabled = true;
+  submitBtn.style.opacity = '0.7';
+  submitBtn.innerHTML = '<span>Verifying...</span>';
+
+  try {
+    const response = await fetch(
+      `${DB_CONFIG.url}/rest/v1/${DB_TABLES.systemUsers}?email=eq.${email}&password=eq.${pass}&status=eq.active`,
+      {
+        headers: {
+          'apikey': DB_CONFIG.anonKey,
+          'Authorization': `Bearer ${DB_CONFIG.anonKey}`
+        }
+      }
+    );
+    
+    const users = await response.json();
+    
+    if (users && users.length > 0) {
+      const user = users[0];
+      // Store user session (simple version)
+      localStorage.setItem('breathsafe_user', JSON.stringify({
+        id: user.user_id,
+        name: user.name,
+        role: user.role,
+        dept: user.dept
+      }));
+      
+      // Update last login
+      fetch(`${DB_CONFIG.url}/rest/v1/${DB_TABLES.systemUsers}?id=eq.${user.id}`, {
+        method: 'PATCH',
+        headers: {
+          'apikey': DB_CONFIG.anonKey,
+          'Authorization': `Bearer ${DB_CONFIG.anonKey}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ last_login: new Date().toISOString() })
+      });
+
+      // Redirect based on role
+      if (user.role === 'admin') {
+        window.location.href = 'roles/admin/overview.html';
+      } else if (user.role === 'management') {
+        window.location.href = 'roles/management/dashboard.html';
+      } else {
+        hideLogin();
+        alert('Welcome, ' + user.name + '. You have viewer access.');
+      }
+    } else {
+      errorEl.style.display = 'block';
+      submitBtn.disabled = false;
+      submitBtn.style.opacity = '1';
+      submitBtn.innerHTML = '<span>Secure Sign In</span><span style="font-size:10px; opacity:0.8;">→</span>';
+    }
+  } catch (error) {
+    console.error('Login error:', error);
+    alert('Connectivity error. Please check your internet.');
+    submitBtn.disabled = false;
+    submitBtn.style.opacity = '1';
+    submitBtn.innerHTML = '<span>Secure Sign In</span><span style="font-size:10px; opacity:0.8;">→</span>';
+  }
 }
 
 // ═══════════════════════════════════════════
@@ -507,6 +694,7 @@ async function initializeDashboard() {
 }
 
 // Start the dashboard
+// Initialize map after first data fetch so markers/layers exist before sizing.
 initializeDashboard();
 </script>
 </body>

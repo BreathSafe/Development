@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BreathSafe — Admin Overview</title>
+  <link rel="stylesheet" href="admin.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Sora:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <script defer src="../../config.js"></script>
+  <script defer src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <script defer src="../../nav.js"></script>
+  <script defer src="admin.js"></script>
+</head>
+<body data-page="overview">
+<div id="app">
+  <header class="topbar">
+    <div class="topbar-logo">
+      <img src="../../logo.png" style="height: 32px; width: auto; object-fit: contain;">
+      BreathSafe Admin
+    </div>
+    <div class="topbar-right">
+      <div class="live-dot" title="Live data"></div>
+      <span style="font-size:11px;color:var(--text3)">Live</span>
+      <div class="user-chip">
+        <div class="avatar">A</div>
+        <span style="color:var(--text2)">Admin</span>
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="logout()">Logout</button>
+    </div>
+  </header>
+  <div class="main">
+    <nav class="sidebar"></nav>
+    <div class="content">
+      <div class="panel-pad">
+        <div class="page-header">
+          <div class="page-title">System Overview</div>
+          <div class="page-sub">Complete system monitoring and administration</div>
+        </div>
+        <div class="card" style="margin-bottom: 20px; background: linear-gradient(135deg, var(--bg2) 0%, var(--bg3) 100%);">
+          <div class="card-head" style="border-bottom: 1px solid var(--border);">
+            <span class="card-title">📊 System Summary</span>
+            <span id="summary-status" style="font-size: 11px; color: var(--green);">🟢 System Online</span>
+          </div>
+          <div class="card-body">
+            <div id="admin-summary" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px;">
+              <div style="text-align: center; padding: 12px; background: rgba(168,85,247,0.07); border: 1px solid rgba(168,85,247,0.18); border-radius: var(--radius);">
+                <div style="font-size: 28px; font-weight: 700; color: var(--purple); font-family: var(--mono); line-height: 1;" id="summary-readings">--</div>
+                <div style="font-size: 11px; color: var(--text2); text-transform: uppercase; letter-spacing: 0.06em; margin-top: 6px;">Total DB Readings</div>
+                <div style="font-size: 10px; color: var(--text3); margin-top: 3px;">All-time records</div>
+              </div>
+              <div style="text-align: center; padding: 12px; background: rgba(59,130,246,0.07); border: 1px solid rgba(59,130,246,0.18); border-radius: var(--radius);">
+                <div style="font-size: 28px; font-weight: 700; color: var(--accent); font-family: var(--mono); line-height: 1;" id="summary-devices">--</div>
+                <div style="font-size: 11px; color: var(--text2); text-transform: uppercase; letter-spacing: 0.06em; margin-top: 6px;">Active Devices</div>
+                <div style="font-size: 10px; color: var(--text3); margin-top: 3px;">Registered sensors</div>
+              </div>
+              <div style="text-align: center; padding: 12px; background: rgba(34,197,94,0.07); border: 1px solid rgba(34,197,94,0.18); border-radius: var(--radius);">
+                <div style="font-size: 28px; font-weight: 700; color: var(--green); font-family: var(--mono); line-height: 1;" id="summary-users">--</div>
+                <div style="font-size: 11px; color: var(--text2); text-transform: uppercase; letter-spacing: 0.06em; margin-top: 6px;">System Users</div>
+                <div style="font-size: 10px; color: var(--text3); margin-top: 3px;">Admin & management</div>
+              </div>
+              <div style="text-align: center; padding: 12px; background: rgba(245,158,11,0.07); border: 1px solid rgba(245,158,11,0.18); border-radius: var(--radius);">
+                <div style="font-size: 28px; font-weight: 700; color: var(--yellow); font-family: var(--mono); line-height: 1;" id="summary-sms">--</div>
+                <div style="font-size: 11px; color: var(--text2); text-transform: uppercase; letter-spacing: 0.06em; margin-top: 6px;">SMS Subscribers</div>
+                <div style="font-size: 10px; color: var(--text3); margin-top: 3px;">Alert recipients</div>
+              </div>
+            </div>
+            <div style="margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
+              <span style="font-size: 12px; color: var(--text2);">Last updated: <span id="summary-last-update" style="color: var(--text);">Never</span></span>
+              <span style="font-size: 12px; color: var(--text2);">Source: <span id="summary-data-source" style="color: var(--text);">--</span></span>
+            </div>
+          </div>
+        </div>
+        <div class="metrics-grid" id="admin-metrics"></div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+          <div class="card">
+            <div class="card-head"><span class="card-title">Device Map - Real-time Arduino Location</span></div>
+            <div class="card-body" style="padding: 0;">
+              <div class="map-wrap" style="height: 300px; margin: 0; border-radius: 0 0 var(--radius2) var(--radius2); position: relative;">
+                <div id="overview-map" style="width: 100%; height: 100%; min-height: 300px;"></div>
+                <div class="map-legend">
+                  <div class="legend-row"><div class="legend-dot" style="background:#22c55e"></div> Good (0–50)</div>
+                  <div class="legend-row"><div class="legend-dot" style="background:#f59e0b"></div> Moderate (51–100)</div>
+                  <div class="legend-row"><div class="legend-dot" style="background:#f97316"></div> Unhealthy (101–150)</div>
+                  <div class="legend-row"><div class="legend-dot" style="background:#ef4444"></div> Very Unhealthy (151+)</div>
+                </div>
+                <div id="map-loading" style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);color:var(--text3);text-align:center;display:none;">
+                  <div style="font-size:16px;margin-bottom:8px;">🗺️ Loading Map...</div>
+                  <div style="font-size:12px;">Initializing Arduino device location</div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div>
+            <div class="card" style="margin-bottom: 16px;">
+              <div class="card-head"><span class="card-title">Current Arduino Reading</span></div>
+              <div class="card-body"><div id="overview-current-reading"></div></div>
+            </div>
+            <div class="card">
+              <div class="card-head" style="display: flex; justify-content: space-between; align-items: center;">
+                <span class="card-title">Recent Alerts</span>
+                <button class="btn btn-ghost btn-sm" onclick="showMarkReadModal()" style="font-size: 10px; padding: 2px 8px;">✔️ Mark Read</button>
+              </div>
+              <div class="card-body"><div class="alert-feed" id="overview-alerts"></div></div>
+            </div>
+          </div>
+        </div>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; margin-top: 16px;">
+          <div class="card">
+            <div class="card-head"><span class="card-title">📈 AQI Trend</span><span style="font-size:11px;color:var(--text2);">Last 20 readings</span></div>
+            <div class="card-body"><div style="height:200px;position:relative;"><canvas id="overview-aqi-chart"></canvas></div></div>
+          </div>
+          <div class="card">
+            <div class="card-head"><span class="card-title">🧪 Pollutant Breakdown</span><span style="font-size:11px;color:var(--text2);">CO₂, NH₃, Benzene (PPM)</span></div>
+            <div class="card-body"><div style="height:200px;position:relative;"><canvas id="overview-pollutant-chart"></canvas></div></div>
+          </div>
+          <div class="card">
+            <div class="card-head"><span class="card-title">🌡️ Env. Parameters</span><span style="font-size:11px;color:var(--text2);">Temp (°C) & Humidity (%)</span></div>
+            <div class="card-body"><div style="height:200px;position:relative;"><canvas id="overview-env-chart"></canvas></div></div>
+          </div>
+        </div>
+        <div class="card" style="margin-top: 16px;">
+          <div class="card-head"><span class="card-title">📊 Arduino Readings History</span><span style="font-size: 11px; color: var(--text2);">Recent 10 records from database</span></div>
+          <div class="card-body">
+            <div class="tbl-wrap">
+              <table class="tbl" id="arduino-readings-table">
+                <thead>
+                  <tr>
+                    <th>Time</th>
+                    <th>AQI</th>
+                    <th>Category</th>
+                    <th>Temperature</th>
+                    <th>Humidity</th>
+                    <th>MQ135 Raw</th>
+                    <th>CO₂ (ppm)</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody id="arduino-readings-body">
+                  <tr><td colspan="8" style="text-align:center;color:var(--text2);padding:20px;">Loading Arduino readings...</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+        <div class="card" style="margin-top: 16px;">
+          <div class="card-head"><span class="card-title">Recent System Activity</span></div>
+          <div class="card-body"><div id="system-activity"></div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>
