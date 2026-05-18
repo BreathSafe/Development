@@ -8,7 +8,9 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Sora:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="management.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="../../config.js"></script>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 </head>
 <body>
 <div id="app">
@@ -32,88 +34,181 @@
     <nav class="sidebar"></nav>
 
     <div class="content">
-      <div id="dashboard-section" class="panel-pad">
+      <div id="overview-section" class="panel-pad">
         <div class="page-header">
-          <div class="page-title">Device Management Dashboard</div>
-          <div class="page-sub">Monitor and manage all air quality sensor nodes</div>
+          <div class="page-title">Device Operations Center</div>
+          <div class="page-sub">Monitor device health, track maintenance, and manage sensor operations</div>
         </div>
-        <div class="metrics-grid" id="mgmt-metrics"></div>
 
-        <div class="card" style="margin-top:14px;">
+        <!-- Connection Error Banner -->
+        <div id="conn-error-banner" style="display:none;margin-bottom:12px;padding:10px 14px;border-radius:8px;background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.25);color:#fca5a5;font-size:12px;"></div>
+
+        <!-- Fleet Status Metrics -->
+        <div class="metrics-grid" id="fleet-metrics"></div>
+
+        <!-- Device Health Monitor -->
+        <div class="card" style="margin-top:16px;">
           <div class="card-head">
-            <span class="card-title">AQI Summary</span>
+            <span class="card-title">🔍 Device Health Monitor</span>
+            <span style="font-size:11px;color:var(--text3);">Real-time component & sensor status</span>
           </div>
           <div class="card-body">
-            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;" id="aqi-summary-bands"></div>
-          </div>
-        </div>
-
-        <div class="card" style="margin-top:14px;">
-          <div class="card-head">
-            <span class="card-title">Component Status (Latest Readings)</span>
-          </div>
-          <div class="card-body">
-            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;" id="component-status-grid"></div>
-          </div>
-        </div>
-
-        <div class="tabs" id="device-tabs">
-          <div class="tab active" onclick="switchDeviceView('grid', this)">Grid View</div>
-          <div class="tab" onclick="switchDeviceView('list', this)">List View</div>
-        </div>
-        <div id="device-grid-view">
-          <div class="device-grid" id="device-grid"></div>
-        </div>
-        <div id="device-list-view" style="display: none;">
-
-          <div class="card">
             <div class="tbl-wrap">
-              <table class="tbl" id="device-table"></table>
+              <table class="tbl" id="device-health-table">
+                <thead>
+                  <tr>
+                    <th>Device</th>
+                    <th>Status</th>
+                    <th>ESP32</th>
+                    <th>DHT11</th>
+                    <th>MQ135</th>
+                    <th>GPS</th>
+                    <th>SIM900</th>
+                    <th>Battery</th>
+                    <th>Last Seen</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody><tr><td colspan="10" style="text-align:center;color:var(--text2);padding:20px;">Loading device health...</td></tr></tbody>
+              </table>
             </div>
           </div>
         </div>
+
+        <!-- Maintenance & Sensor Logs -->
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px;">
+          <div class="card">
+            <div class="card-head">
+              <span class="card-title">🔧 Maintenance Log</span>
+              <button class="btn btn-primary btn-sm" onclick="showMaintenanceModal()">+ Log Maintenance</button>
+            </div>
+            <div class="card-body">
+              <div id="maintenance-log" style="max-height:280px;overflow-y:auto;">
+                <p style="text-align:center;padding:20px;color:var(--text3);">No maintenance records yet</p>
+              </div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-head">
+              <span class="card-title">📡 Sensor Activity Log</span>
+              <button class="btn btn-ghost btn-sm" onclick="loadSensorLogs(true)">Refresh</button>
+            </div>
+            <div class="card-body">
+              <div id="sensor-activity-log" style="max-height:280px;overflow-y:auto;">
+                <p style="text-align:center;padding:20px;color:var(--text3);">Loading sensor activity...</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div><!-- /#overview-section -->
 
       <div id="devices-section" class="panel-pad" style="display: none;">
-
         <div class="page-header">
-          <div class="page-title">All Devices</div>
-          <div class="page-sub">Complete device inventory and status</div>
+          <div class="page-title">Device Management</div>
+          <div class="page-sub">Locate, inspect, and evaluate all sensor nodes</div>
         </div>
-        <div class="card">
+        <div id="device-conn-error" style="display:none;margin-bottom:12px;padding:10px 14px;border-radius:8px;background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.25);color:#fca5a5;font-size:12px;"></div>
+
+        <!-- Map + Maintenance Form -->
+        <div style="display:grid;grid-template-columns:2fr 1.2fr;gap:16px;margin-bottom:16px;">
+          <div class="card">
+            <div class="card-head">
+              <span class="card-title">📍 Device Locations</span>
+              <span id="map-device-label" style="font-size:11px;color:var(--text3);"></span>
+            </div>
+            <div class="card-body" style="padding:0;">
+              <div id="device-management-map" style="height:400px;width:100%;"></div>
+            </div>
+          </div>
+          <!-- Inline Log Maintenance Form -->
+          <div class="card">
+            <div class="card-head">
+              <span class="card-title">🔧 Log Maintenance</span>
+            </div>
+            <div class="card-body" style="overflow-y:auto;max-height:400px;">
+              <div class="form-group">
+                <label class="form-label">Device</label>
+                <select class="form-select" id="maint-device-id"><option value="">Select device...</option></select>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Maintenance Type</label>
+                <select class="form-select" id="maint-type">
+                  <option value="inspection">Routine Inspection</option>
+                  <option value="sensor_replacement">Sensor Replacement</option>
+                  <option value="calibration">Sensor Calibration</option>
+                  <option value="cleaning">Cleaning</option>
+                  <option value="firmware_update">Firmware Update</option>
+                  <option value="repair">Repair</option>
+                  <option value="other">Other</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Component(s) Affected</label>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:12px;color:var(--text2);">
+                  <label><input type="checkbox" class="maint-component" value="ESP32"> ESP32</label>
+                  <label><input type="checkbox" class="maint-component" value="DHT11"> DHT11</label>
+                  <label><input type="checkbox" class="maint-component" value="MQ135"> MQ135</label>
+                  <label><input type="checkbox" class="maint-component" value="GPS"> GPS</label>
+                  <label><input type="checkbox" class="maint-component" value="SIM900"> SIM900</label>
+                  <label><input type="checkbox" class="maint-component" value="Power"> Power/Battery</label>
+                </div>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Notes</label>
+                <textarea class="form-input" id="maint-notes" rows="3" placeholder="Describe the maintenance performed..."></textarea>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Status After Maintenance</label>
+                <select class="form-select" id="maint-status">
+                  <option value="resolved">Issue Resolved</option>
+                  <option value="ongoing">Issue Ongoing</option>
+                  <option value="monitoring">Under Monitoring</option>
+                </select>
+              </div>
+              <button class="btn btn-primary" style="width:100%;" onclick="saveMaintenanceLog()">Save Log</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Selected device detail — live sensor data -->
+        <div class="card" style="margin-bottom:16px;">
           <div class="card-head">
-            <span class="card-title">Device Inventory</span>
-            <button class="btn btn-primary btn-sm" onclick="showAddDeviceModal()">+ Add Device</button>
+            <span class="card-title" id="detail-device-name">📟 Device Details</span>
+            <div style="display:flex;align-items:center;gap:8px;">
+              <span id="detail-device-status-badge"></span>
+              <span id="detail-last-seen" style="font-size:11px;color:var(--text3);"></span>
+            </div>
           </div>
           <div class="card-body">
-            <div class="tbl-wrap">
-              <table class="tbl" id="all-devices-table"></table>
+            <div id="device-detail-content" style="color:var(--text3);text-align:center;padding:30px;">
+              Select a device from the map to view details.
+            </div>
+          </div>
+        </div>
+
+        <!-- Maintenance & Evaluation for selected device -->
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+          <div class="card">
+            <div class="card-head"><span class="card-title">🔧 Maintenance History</span></div>
+            <div class="card-body">
+              <div id="device-maintenance-history" style="max-height:280px;overflow-y:auto;">
+                <p style="text-align:center;color:var(--text3);padding:20px;">Select a device to see maintenance records.</p>
+              </div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-head"><span class="card-title">📋 Evaluation & Notes</span></div>
+            <div class="card-body">
+              <div id="device-evaluation-content" style="max-height:280px;overflow-y:auto;">
+                <p style="text-align:center;color:var(--text3);padding:20px;">Select a device to view evaluation.</p>
+              </div>
             </div>
           </div>
         </div>
       </div>
 
 
-
-      <div id="analytics-section" class="panel-pad" style="display: none;">
-        <div class="page-header">
-          <div class="page-title">Analytics</div>
-          <div class="page-sub">Historical data analysis and trends</div>
-        </div>
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
-          <div class="card">
-            <div class="card-head"><span class="card-title">AQI Trends (24h)</span></div>
-            <div class="card-body"><canvas id="aqi-chart" style="height: 200px;"></canvas></div>
-          </div>
-          <div class="card">
-            <div class="card-head"><span class="card-title">Temperature & Humidity</span></div>
-            <div class="card-body"><canvas id="temp-hum-chart" style="height: 200px;"></canvas></div>
-          </div>
-        </div>
-        <div class="card">
-          <div class="card-head"><span class="card-title">Statistics Summary</span></div>
-          <div class="card-body"><div id="stats-summary"></div></div>
-        </div>
-      </div>
 
       <div id="alerts-section" class="panel-pad" style="display: none;">
         <div class="page-header">
@@ -123,45 +218,107 @@
         <div class="card">
           <div class="card-head">
             <span class="card-title">Recent Alerts</span>
-            <button class="btn btn-ghost btn-sm" onclick="clearAlerts()">Clear All</button>
+            <button class="btn btn-ghost btn-sm" onclick="markAlertsAsRead()">Mark All as Read</button>
           </div>
           <div class="card-body"><div id="alert-list"></div></div>
         </div>
       </div>
-    </div>
-  </div>
-</div>
 
-<div class="modal-bg" id="device-modal">
-  <div class="modal">
-    <div class="modal-head">
-      <span class="modal-title">Add Device</span>
-      <button class="modal-close" onclick="closeModal('device-modal')">✕</button>
-    </div>
-    <div class="modal-body">
-      <div class="form-group"><label class="form-label">Device Name</label><input class="form-input" id="device-name" placeholder="BreathSafe Monitor"></div>
-      <div class="form-group"><label class="form-label">Device ID</label><input class="form-input" id="device-id" placeholder="AW-001"></div>
-      <div class="form-group"><label class="form-label">Location</label><input class="form-input" id="device-location" placeholder="Building Name"></div>
+      <!-- ══════════════════════════════════════════ -->
+      <!-- REPORTS SECTION                           -->
+      <!-- ══════════════════════════════════════════ -->
+      <div id="reports-section" class="panel-pad" style="display:none;">
+        <div class="page-header">
+          <div class="page-title">Maintenance KPI Report</div>
+          <div class="page-sub">Performance indicators and trend analysis for all maintenance activities</div>
+        </div>
 
-      <div style="margin-bottom: 15px;">
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-          <label class="form-label" style="margin-bottom:0;">Coordinates</label>
-          <button class="btn btn-ghost btn-sm" onclick="detectLocation()" style="font-size:11px; padding: 4px 8px;">📍 Detect Device Location</button>
+        <!-- Date range filter -->
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:20px;flex-wrap:wrap;">
+          <span style="font-size:12px;color:var(--text3);font-weight:600;text-transform:uppercase;letter-spacing:.06em;">Period:</span>
+          <button class="btn btn-ghost btn-sm report-range-btn active" data-days="7"  onclick="setReportRange(7,  this)">7 Days</button>
+          <button class="btn btn-ghost btn-sm report-range-btn"        data-days="30" onclick="setReportRange(30, this)">30 Days</button>
+          <button class="btn btn-ghost btn-sm report-range-btn"        data-days="90" onclick="setReportRange(90, this)">90 Days</button>
+          <button class="btn btn-ghost btn-sm report-range-btn"        data-days="0"  onclick="setReportRange(0,  this)">All Time</button>
+          <span id="report-range-label" style="font-size:11px;color:var(--text3);margin-left:4px;"></span>
         </div>
-        <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px;">
-          <input class="form-input" id="device-lat" placeholder="Latitude">
-          <input class="form-input" id="device-lng" placeholder="Longitude">
+
+        <!-- KPI Summary Cards -->
+        <div class="metrics-grid" id="report-kpi-cards" style="margin-bottom:20px;"></div>
+
+        <!-- KPI Narrative Summary -->
+        <div class="card" style="margin-bottom:20px;">
+          <div class="card-head">
+            <span class="card-title">📊 KPI Summary</span>
+            <span id="report-generated-at" style="font-size:11px;color:var(--text3);"></span>
+          </div>
+          <div class="card-body">
+            <div id="report-kpi-summary" style="color:var(--text3);font-size:13px;">Loading summary...</div>
+          </div>
         </div>
-        <div id="modal-map" style="height: 180px; border-radius: var(--radius); border: 1px solid var(--border); overflow: hidden;"></div>
-        <div style="font-size: 10px; color: var(--text3); margin-top: 5px;">Tip: Click on the map to set coordinates manually</div>
+
+        <!-- Charts row 1: Type breakdown + Status breakdown -->
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;">
+          <div class="card">
+            <div class="card-head"><span class="card-title">🔧 Maintenance by Type</span></div>
+            <div class="card-body" style="position:relative;height:260px;">
+              <canvas id="chart-type"></canvas>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-head"><span class="card-title">✅ Maintenance by Status</span></div>
+            <div class="card-body" style="position:relative;height:260px;">
+              <canvas id="chart-status"></canvas>
+            </div>
+          </div>
+        </div>
+
+        <!-- Charts row 2: Activity over time + Component frequency -->
+        <div style="display:grid;grid-template-columns:2fr 1fr;gap:16px;margin-bottom:16px;">
+          <div class="card">
+            <div class="card-head"><span class="card-title">📈 Maintenance Activity Over Time</span></div>
+            <div class="card-body" style="position:relative;height:260px;">
+              <canvas id="chart-timeline"></canvas>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-head"><span class="card-title">🔩 Component Frequency</span></div>
+            <div class="card-body" style="position:relative;height:260px;">
+              <canvas id="chart-components"></canvas>
+            </div>
+          </div>
+        </div>
+
+        <!-- Recent maintenance table -->
+        <div class="card">
+          <div class="card-head">
+            <span class="card-title">📋 Maintenance Log</span>
+            <span id="report-log-count" style="font-size:11px;color:var(--text3);"></span>
+          </div>
+          <div class="card-body" style="padding:0;">
+            <div class="tbl-wrap">
+              <table class="tbl" id="report-log-table">
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Device</th>
+                    <th>Type</th>
+                    <th>Components</th>
+                    <th>Status</th>
+                    <th>Performed By</th>
+                    <th>Notes</th>
+                  </tr>
+                </thead>
+                <tbody><tr><td colspan="7" style="text-align:center;padding:20px;color:var(--text3);">Loading...</td></tr></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
       </div>
-
-      <div class="form-group"><label class="form-label">Status</label><select class="form-select" id="device-status"><option value="online">Online</option><option value="offline">Offline</option><option value="maintenance">Maintenance</option></select></div>
-      <div class="form-group"><label class="form-label">Alert Threshold (AQI)</label><input class="form-input" type="number" id="device-threshold" placeholder="100"></div>
     </div>
-    <div class="modal-foot"><button class="btn btn-ghost" onclick="closeModal('device-modal')">Cancel</button><button class="btn btn-primary" onclick="saveDevice()">Add Device</button></div>
   </div>
 </div>
+
 
 <div class="modal-bg" id="sync-error-modal">
   <div class="modal" style="max-width: 400px; text-align: center;">
@@ -188,6 +345,9 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
 <script defer src="../../nav.js"></script>
 <script defer src="management.js"></script>
+
+<!-- Toast container -->
+<div id="toast-container"></div>
 </body>
 </html>
 

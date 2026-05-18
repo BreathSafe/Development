@@ -67,6 +67,24 @@
                 <div style="font-size: 10px; color: var(--text3); margin-top: 3px;">Alert recipients</div>
               </div>
             </div>
+            <div id="sms-summary" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin-top: 16px;">
+              <div style="text-align: center; padding: 10px; background: rgba(251,191,36,0.07); border: 1px solid rgba(251,191,36,0.18); border-radius: var(--radius);">
+                <div style="font-size: 24px; font-weight: 700; color: var(--yellow); font-family: var(--mono); line-height: 1;" id="sms-pending">--</div>
+                <div style="font-size: 10px; color: var(--text2); text-transform: uppercase; letter-spacing: 0.06em; margin-top: 4px;">Pending</div>
+              </div>
+              <div style="text-align: center; padding: 10px; background: rgba(34,197,94,0.07); border: 1px solid rgba(34,197,94,0.18); border-radius: var(--radius);">
+                <div style="font-size: 24px; font-weight: 700; color: var(--green); font-family: var(--mono); line-height: 1;" id="sms-sent">--</div>
+                <div style="font-size: 10px; color: var(--text2); text-transform: uppercase; letter-spacing: 0.06em; margin-top: 4px;">Sent</div>
+              </div>
+              <div style="text-align: center; padding: 10px; background: rgba(239,68,68,0.07); border: 1px solid rgba(239,68,68,0.18); border-radius: var(--radius);">
+                <div style="font-size: 24px; font-weight: 700; color: var(--red); font-family: var(--mono); line-height: 1;" id="sms-failed">--</div>
+                <div style="font-size: 10px; color: var(--text2); text-transform: uppercase; letter-spacing: 0.06em; margin-top: 4px;">Failed</div>
+              </div>
+              <div style="text-align: center; padding: 10px; background: rgba(168,85,247,0.07); border: 1px solid rgba(168,85,247,0.18); border-radius: var(--radius);">
+                <div style="font-size: 24px; font-weight: 700; color: var(--purple); font-family: var(--mono); line-height: 1;" id="sms-total">--</div>
+                <div style="font-size: 10px; color: var(--text2); text-transform: uppercase; letter-spacing: 0.06em; margin-top: 4px;">Total</div>
+              </div>
+            </div>
             <div style="margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
               <span style="font-size: 12px; color: var(--text2);">Last updated: <span id="summary-last-update" style="color: var(--text);">Never</span></span>
               <span style="font-size: 12px; color: var(--text2);">Source: <span id="summary-data-source" style="color: var(--text);">--</span></span>
@@ -140,6 +158,27 @@
                 </thead>
                 <tbody id="arduino-readings-body">
                   <tr><td colspan="8" style="text-align:center;color:var(--text2);padding:20px;">Loading Arduino readings...</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+        <div class="card" style="margin-top: 16px;">
+          <div class="card-head"><span class="card-title">📤 SMS Broadcast History</span><span style="font-size:11px;color:var(--text3);">Recent message broadcasts</span></div>
+          <div class="card-body">
+            <div class="tbl-wrap">
+              <table class="tbl" id="sms-history-table">
+                <thead>
+                  <tr>
+                    <th>Time</th>
+                    <th>Recipient</th>
+                    <th>Status</th>
+                    <th>Message Preview</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody id="sms-history-body">
+                  <tr><td colspan="4" style="text-align:center;color:var(--text2);padding:20px;">Loading SMS history...</td></tr>
                 </tbody>
               </table>
             </div>

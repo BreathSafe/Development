@@ -15,35 +15,212 @@
 <body data-page="reports">
 <div id="app">
   <header class="topbar">
-    <div class="topbar-logo"><img src="../../logo.png" style="height: 32px; width: auto; object-fit: contain;">BreathSafe Admin</div>
-    <div class="topbar-right"><div class="live-dot" title="Live data"></div><span style="font-size:11px;color:var(--text3)">Live</span><div class="user-chip"><div class="avatar">A</div><span style="color:var(--text2)">Admin</span></div><button class="btn btn-ghost btn-sm" onclick="logout()">Logout</button></div>
+    <div class="topbar-logo">
+      <img src="../../logo.png" style="height: 32px; width: auto; object-fit: contain;">
+      BreathSafe Admin
+    </div>
+    <div class="topbar-right">
+      <div class="live-dot" title="Live data"></div>
+      <span style="font-size:11px;color:var(--text3)">Live</span>
+      <div class="user-chip"><div class="avatar">A</div><span style="color:var(--text2)">Admin</span></div>
+      <button class="btn btn-ghost btn-sm" onclick="logout()">Logout</button>
+    </div>
   </header>
+
   <div class="main">
     <nav class="sidebar"></nav>
     <div class="content">
       <div class="panel-pad">
-        <div class="page-header"><div class="page-title">Analytics Reports</div><div class="page-sub">Threshold-based analytics and interpretation from recent readings</div></div>
-        <div class="metrics-grid" id="reports-metrics"></div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;">
-          <div class="card"><div class="card-head"><span class="card-title">User Activity (Bar)</span></div><div class="card-body"><div style="height:240px;position:relative;"><canvas id="report-user-bar-chart"></canvas></div></div></div>
-          <div class="card"><div class="card-head"><span class="card-title">Alerts Generated Trend (Line)</span></div><div class="card-body"><div style="height:240px;position:relative;"><canvas id="report-alert-line-chart"></canvas></div></div></div>
+
+        <!-- Page Header -->
+        <div class="page-header" style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px;">
+          <div>
+            <div class="page-title">Analytics & Reports</div>
+            <div class="page-sub">Air quality trends, pollutant analysis, and maintenance performance</div>
+          </div>
+          <button class="btn btn-ghost btn-sm" onclick="loadReports()" style="margin-top:4px;">↻ Refresh</button>
         </div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;">
-          <div class="card"><div class="card-head"><span class="card-title">SMS Status per User (Stacked)</span></div><div class="card-body"><div style="height:260px;position:relative;"><canvas id="report-sms-stacked-chart"></canvas></div></div></div>
-          <div class="card"><div class="card-head"><span class="card-title">AQI Band Share (Pie)</span></div><div class="card-body"><div style="height:260px;position:relative;"><canvas id="report-aqi-pie-chart"></canvas></div></div></div>
+
+        <!-- ══════════════════════════════════════════════════ -->
+        <!-- SECTION 1 — AQI OVERVIEW KPIs                    -->
+        <!-- ══════════════════════════════════════════════════ -->
+        <div style="font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.1em;margin-bottom:10px;">Air Quality Overview</div>
+        <div class="metrics-grid" id="reports-metrics" style="margin-bottom:20px;"></div>
+
+        <!-- AQI Summary narrative -->
+        <div class="card" style="margin-bottom:20px;">
+          <div class="card-head">
+            <span class="card-title">📋 System Health Summary</span>
+            <span id="report-generated-at" style="font-size:11px;color:var(--text3);"></span>
+          </div>
+          <div class="card-body">
+            <div class="tbl-wrap">
+              <table class="tbl">
+                <thead><tr><th>Metric</th><th>Value</th><th>Status / Assessment</th></tr></thead>
+                <tbody id="report-interpretation">
+                  <tr><td colspan="3" style="text-align:center;color:var(--text2);padding:20px;">Loading interpretation...</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
         </div>
+
+        <!-- ══════════════════════════════════════════════════ -->
+        <!-- SECTION 2 — AQI & POLLUTANT CHARTS               -->
+        <!-- ══════════════════════════════════════════════════ -->
+        <div style="font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.1em;margin-bottom:10px;">AQI & Pollutant Analysis</div>
+
+        <!-- Row 1: AQI trend + AQI band pie -->
         <div style="display:grid;grid-template-columns:2fr 1fr;gap:16px;margin-bottom:16px;">
           <div class="card">
-            <div class="card-head"><span class="card-title">📊 Pollutant Concentration Trends (CO₂, NH₃, Benzene, Alcohol)</span></div>
-            <div class="card-body"><div style="height:280px;position:relative;"><canvas id="report-pollutant-line-chart"></canvas></div></div>
+            <div class="card-head">
+              <span class="card-title">📈 AQI Trend</span>
+              <span style="font-size:11px;color:var(--text2);">Last 100 readings</span>
+            </div>
+            <div class="card-body"><div style="height:240px;position:relative;"><canvas id="report-aqi-trend-chart"></canvas></div></div>
           </div>
           <div class="card">
-            <div class="card-head"><span class="card-title">🥧 Pollutant Share (Pie)</span></div>
-            <div class="card-body"><div style="height:280px;position:relative;"><canvas id="report-pollutant-pie-chart"></canvas></div></div>
+            <div class="card-head"><span class="card-title">🥧 AQI Band Share</span></div>
+            <div class="card-body"><div style="height:240px;position:relative;"><canvas id="report-aqi-pie-chart"></canvas></div></div>
           </div>
         </div>
-        <div class="card"><div class="card-head"><span class="card-title">System Health Summary</span><button class="btn btn-ghost btn-sm" onclick="loadReports()">Refresh</button></div><div class="card-body"><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Metric</th><th>Value</th><th>Status / Assessment</th></tr></thead><tbody id="report-interpretation"><tr><td colspan="3" style="text-align:center;color:var(--text2);padding:20px;">Loading interpretation...</td></tr></tbody></table></div></div></div>
-        <div class="card"><div class="card-head"><span class="card-title">AQI Threshold Distribution</span><span style="font-size:11px;color:var(--text2);">Based on latest 100 readings</span></div><div class="card-body"><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Category</th><th>Range</th><th>Readings</th><th>Share</th><th>Interpretation</th></tr></thead><tbody id="report-threshold-body"><tr><td colspan="5" style="text-align:center;color:var(--text2);padding:20px;">Loading report...</td></tr></tbody></table></div></div></div>
+
+        <!-- Row 2: Pollutant line + pollutant pie -->
+        <div style="display:grid;grid-template-columns:2fr 1fr;gap:16px;margin-bottom:16px;">
+          <div class="card">
+            <div class="card-head">
+              <span class="card-title">🧪 Pollutant Concentration Trends</span>
+              <span style="font-size:11px;color:var(--text2);">CO₂, NH₃, Benzene, Alcohol (ppm)</span>
+            </div>
+            <div class="card-body"><div style="height:260px;position:relative;"><canvas id="report-pollutant-line-chart"></canvas></div></div>
+          </div>
+          <div class="card">
+            <div class="card-head"><span class="card-title">🥧 Pollutant Share</span></div>
+            <div class="card-body"><div style="height:260px;position:relative;"><canvas id="report-pollutant-pie-chart"></canvas></div></div>
+          </div>
+        </div>
+
+        <!-- Row 3: Temp/Humidity + Alerts trend -->
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;">
+          <div class="card">
+            <div class="card-head">
+              <span class="card-title">🌡️ Temperature & Humidity</span>
+              <span style="font-size:11px;color:var(--text2);">Environmental parameters</span>
+            </div>
+            <div class="card-body"><div style="height:220px;position:relative;"><canvas id="report-env-chart"></canvas></div></div>
+          </div>
+          <div class="card">
+            <div class="card-head">
+              <span class="card-title">🚨 Alerts Generated (Cumulative)</span>
+              <span style="font-size:11px;color:var(--text2);">AQI threshold breaches</span>
+            </div>
+            <div class="card-body"><div style="height:220px;position:relative;"><canvas id="report-alert-line-chart"></canvas></div></div>
+          </div>
+        </div>
+
+        <!-- AQI Threshold Distribution table -->
+        <div class="card" style="margin-bottom:28px;">
+          <div class="card-head">
+            <span class="card-title">📊 AQI Threshold Distribution</span>
+            <span style="font-size:11px;color:var(--text2);">Based on latest 100 readings</span>
+          </div>
+          <div class="card-body">
+            <div class="tbl-wrap">
+              <table class="tbl">
+                <thead><tr><th>Category</th><th>Range</th><th>Readings</th><th>Share</th><th>Interpretation</th></tr></thead>
+                <tbody id="report-threshold-body">
+                  <tr><td colspan="5" style="text-align:center;color:var(--text2);padding:20px;">Loading report...</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- ══════════════════════════════════════════════════ -->
+        <!-- SECTION 3 — MAINTENANCE KPI                      -->
+        <!-- ══════════════════════════════════════════════════ -->
+        <div style="font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.1em;margin-bottom:10px;">Maintenance KPI</div>
+
+        <!-- Maintenance KPI cards -->
+        <div class="metrics-grid" id="report-maint-kpi-cards" style="margin-bottom:16px;"></div>
+
+        <!-- Maintenance KPI narrative -->
+        <div class="card" style="margin-bottom:16px;">
+          <div class="card-head">
+            <span class="card-title">📋 Maintenance Summary</span>
+          </div>
+          <div class="card-body">
+            <div id="report-maint-summary" style="color:var(--text3);font-size:13px;">Loading...</div>
+          </div>
+        </div>
+
+        <!-- Maintenance charts row -->
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;">
+          <div class="card">
+            <div class="card-head"><span class="card-title">🔧 Maintenance by Type</span></div>
+            <div class="card-body"><div style="height:240px;position:relative;"><canvas id="report-maint-type-chart"></canvas></div></div>
+          </div>
+          <div class="card">
+            <div class="card-head"><span class="card-title">✅ Maintenance by Status</span></div>
+            <div class="card-body"><div style="height:240px;position:relative;"><canvas id="report-maint-status-chart"></canvas></div></div>
+          </div>
+        </div>
+
+        <div style="display:grid;grid-template-columns:2fr 1fr;gap:16px;margin-bottom:16px;">
+          <div class="card">
+            <div class="card-head"><span class="card-title">📈 Maintenance Activity Over Time</span></div>
+            <div class="card-body"><div style="height:220px;position:relative;"><canvas id="report-maint-timeline-chart"></canvas></div></div>
+          </div>
+          <div class="card">
+            <div class="card-head"><span class="card-title">🔩 Component Frequency</span></div>
+            <div class="card-body"><div style="height:220px;position:relative;"><canvas id="report-maint-comp-chart"></canvas></div></div>
+          </div>
+        </div>
+
+        <!-- Maintenance log table -->
+        <div class="card" style="margin-bottom:28px;">
+          <div class="card-head">
+            <span class="card-title">📋 Maintenance Log</span>
+            <span id="report-maint-log-count" style="font-size:11px;color:var(--text3);"></span>
+          </div>
+          <div class="card-body" style="padding:0;">
+            <div class="tbl-wrap">
+              <table class="tbl" id="report-maint-log-table">
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Device</th>
+                    <th>Type</th>
+                    <th>Components</th>
+                    <th>Status</th>
+                    <th>Performed By</th>
+                    <th>Notes</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr><td colspan="7" style="text-align:center;padding:20px;color:var(--text3);">Loading...</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- ══════════════════════════════════════════════════ -->
+        <!-- SECTION 4 — USER & SMS ACTIVITY                  -->
+        <!-- ══════════════════════════════════════════════════ -->
+        <div style="font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.1em;margin-bottom:10px;">User & SMS Activity</div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;">
+          <div class="card">
+            <div class="card-head"><span class="card-title">👤 User Activity</span></div>
+            <div class="card-body"><div style="height:240px;position:relative;"><canvas id="report-user-bar-chart"></canvas></div></div>
+          </div>
+          <div class="card">
+            <div class="card-head"><span class="card-title">📤 SMS Status per User</span></div>
+            <div class="card-body"><div style="height:240px;position:relative;"><canvas id="report-sms-stacked-chart"></canvas></div></div>
+          </div>
+        </div>
+
       </div>
     </div>
   </div>
