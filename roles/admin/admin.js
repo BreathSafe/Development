@@ -1,6 +1,6 @@
 const DB_CONFIG = window.CONFIG?.database || {
   url: 'https://hqptxgzpzuhsrybuyjoy.supabase.co',
-  anonKey: 'sb_publishable_Vn85SyMOd3cToHzCliO5Jg_AX2BO_xY',
+  anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhxcHR4Z3pwenVoc3J5YnV5am95Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM3MjEyNjEsImV4cCI6MjA4OTI5NzI2MX0.0B7ESA_2W7P3iHsT9Og9oAtj59I8EpyHPNAlQie_kus',
   table: 'air_quality_readings',
   refreshInterval: 30000,
   fetchLimit: 10
@@ -91,7 +91,7 @@ const Database = {
 
     const [totalReadings, totalDevices, totalUsers, totalSMS] = await Promise.all([
       fetchCount(DB_TABLES.readings),
-      fetchCount(DB_TABLES.devices, '&status=eq.active'),
+      fetchCount(DB_TABLES.devices), // Count all devices regardless of status
       fetchCount(DB_TABLES.systemUsers, '&status=eq.active'),
       fetchCount(DB_TABLES.notificationUsers, '&is_active=eq.true')
     ]);
@@ -158,7 +158,11 @@ const Database = {
           body: JSON.stringify(userData)
         }
       );
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      if (!response.ok) {
+        const errText = await response.text().catch(() => response.statusText);
+        console.error(`HTTP ${response.status} - ${errText}`);
+        throw new Error(`HTTP ${response.status}: ${errText}`);
+      }
       return await response.json();
     } catch (error) {
       console.error('Error registering SMS user:', error);
@@ -174,13 +178,67 @@ const Database = {
           method: 'DELETE',
           headers: {
             'apikey': DB_CONFIG.anonKey,
-            'Authorization': `Bearer ${DB_CONFIG.anonKey}`
+            'Authorization': `Bearer ${DB_CONFIG.anonKey}`,
+            'Prefer': 'return=minimal'
           }
+        }
+      );
+      // Supabase DELETE returns 204 No Content on success
+      if (response.status !== 204 && response.status !== 200) {
+        const errText = await response.text().catch(() => response.statusText);
+        console.error(`Delete failed: HTTP ${response.status} - ${errText}`);
+        throw new Error(`HTTP ${response.status}: ${errText}`);
+      }
+      return true;
+    } catch (error) {
+      console.error('Error deleting SMS user:', error);
+      throw error;
+    }
+  },
+
+  async updateSMSUser(userId, userData) {
+    try {
+      const response = await fetch(
+        `${DB_CONFIG.url}/rest/v1/${DB_TABLES.notificationUsers}?id=eq.${userId}`,
+        {
+          method: 'PATCH',
+          headers: {
+            'apikey': DB_CONFIG.anonKey,
+            'Authorization': `Bearer ${DB_CONFIG.anonKey}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(userData)
+        }
+      );
+      if (!response.ok) {
+        const errText = await response.text().catch(() => response.statusText);
+        console.error(`HTTP ${response.status} - ${errText}`);
+        throw new Error(`HTTP ${response.status}: ${errText}`);
+      }
+      return await response.json();
+    } catch (error) {
+      console.error('Error updating SMS user:', error);
+      throw error;
+    }
+  },
+
+  async updateUserLastAlert(userId) {
+    try {
+      const response = await fetch(
+        `${DB_CONFIG.url}/rest/v1/${DB_TABLES.notificationUsers}?id=eq.${userId}`,
+        {
+          method: 'PATCH',
+          headers: {
+            'apikey': DB_CONFIG.anonKey,
+            'Authorization': `Bearer ${DB_CONFIG.anonKey}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ last_alert: new Date().toISOString() })
         }
       );
       return response.ok;
     } catch (error) {
-      console.error('Error deleting SMS user:', error);
+      console.error('Error updating user last alert:', error);
       return false;
     }
   },
@@ -223,6 +281,43 @@ const Database = {
     } catch (error) {
       console.error('Error fetching SMS notifications:', error);
       return [];
+    }
+  },
+
+  async getSMSStats() {
+    try {
+      const headers = {
+        'apikey': DB_CONFIG.anonKey,
+        'Authorization': `Bearer ${DB_CONFIG.anonKey}`,
+        'Prefer': 'count=exact',
+        'Range-Unit': 'items',
+        'Range': '0-0'
+      };
+
+      const fetchCount = async (filter = '') => {
+        try {
+          const res = await fetch(
+            `${DB_CONFIG.url}/rest/v1/${DB_TABLES.smsNotifications}?select=*${filter}&limit=1`,
+            { headers }
+          );
+          const contentRange = res.headers.get('Content-Range') || '';
+          const match = contentRange.match(/\/(\d+)$/);
+          return match ? parseInt(match[1], 10) : 0;
+        } catch (e) {
+          return 0;
+        }
+      };
+
+      const [pending, sent, failed] = await Promise.all([
+        fetchCount('&status=eq.pending'),
+        fetchCount('&status=eq.sent'),
+        fetchCount('&status=eq.failed')
+      ]);
+
+      return { pending, sent, failed, total: pending + sent + failed };
+    } catch (error) {
+      console.error('Error fetching SMS stats:', error);
+      return { pending: 0, sent: 0, failed: 0, total: 0 };
     }
   },
 
@@ -559,38 +654,38 @@ let cachedReadings = null;
 let lastCacheTime = null;
 
 function aqiColor(aqi) {
-  if (aqi <= 50) return '#22c55e';
-  if (aqi <= 100) return '#f59e0b';
-  if (aqi <= 150) return '#f97316';
-  if (aqi <= 200) return '#ef4444';
-  return '#a855f7';
+  if (aqi <= 700) return '#22c55e';
+  if (aqi <= 1500) return '#f59e0b';
+  return '#ef4444';
 }
 
 function aqiClass(aqi) {
-  if (aqi <= 50) return 'aqi-good';
-  if (aqi <= 100) return 'aqi-moderate';
-  if (aqi <= 150) return 'aqi-unhealthy';
-  if (aqi <= 200) return 'aqi-very';
-  return 'aqi-hazardous';
+  if (aqi <= 700) return 'aqi-good';
+  if (aqi <= 1500) return 'aqi-moderate';
+  return 'aqi-unhealthy';
 }
 
 function aqiLabel(aqi) {
-  if (aqi <= 50) return 'Good';
-  if (aqi <= 100) return 'Moderate';
-  if (aqi <= 150) return 'Unhealthy';
-  if (aqi <= 200) return 'Very Unhealthy';
-  return 'Hazardous';
+  if (aqi <= 700) return 'Good';
+  if (aqi <= 1500) return 'Moderate';
+  return 'Unhealthy';
 }
 
 function formatAlertClockTime(date = new Date()) {
-  return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  return date.toLocaleString('en-US', { 
+    hour: '2-digit', 
+    minute: '2-digit', 
+    hour12: true,
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric'
+  });
 }
 
 function getAqiSeverityLevel(aqi) {
-  if (aqi <= 50) return 0;
-  if (aqi <= 100) return 1;
-  if (aqi <= 200) return 2;
-  return 3;
+  if (aqi <= 700) return 0;
+  if (aqi <= 1500) return 1;
+  return 2;
 }
 
 function getTemperatureSeverityLevel(temp) {
@@ -608,10 +703,9 @@ function getAlertLevel(device) {
 }
 
 function getAirQualityText(aqi) {
-  if (aqi <= 50) return 'Good';
-  if (aqi <= 100) return 'Slightly polluted (AQI rising)';
-  if (aqi <= 200) return 'Unhealthy (high pollutant concentration detected)';
-  return 'Hazardous (dangerous pollutant level detected)';
+  if (aqi <= 700) return 'Good';
+  if (aqi <= 1500) return 'Moderate';
+  return 'Unhealthy';
 }
 
 function getTemperatureText(temp) {
@@ -630,33 +724,34 @@ function getAlertTypeFromLevel(level) {
 function buildAlertContent(level, device) {
   const location = device.location || 'School Campus Monitoring Zone';
   const time = formatAlertClockTime();
-  const airQuality = getAirQualityText(device.aqi || 0);
+  const aqi = device.aqi || 0;
+  const airQuality = getAirQualityText(aqi);
   const temperature = getTemperatureText(device.temp || 0);
   const templates = {
     moderate: {
-      smsHeader: 'BreatheSafe Community Advisory (MODERATE)',
-      smsBody: `Location: ${location}\nTime: ${time}\nAir Quality: ${airQuality}\nHealth Note: Air is slightly polluted. Sensitive groups should be aware.\nAdvice: Limit heavy outdoor exertion and stay hydrated.`,
+      smsHeader: 'BreatheSafe Warning (Moderate Condition)',
+      smsBody: `Location: ${location}\nTime: ${time}\nAir Quality: ${airQuality}\nHealth Rec: Sensitive groups should limit outdoor activities. Stay hydrated.\n\nCall to Action: Consider wearing a mask outdoors and keep windows closed. Monitor local air quality updates.`,
       toastType: 'info',
       toastTitle: 'Moderate Air Condition',
       toastMessage: `Community Advisory: Slightly degraded air quality at ${location}. Sensitive individuals should consider precautions.`
     },
     high: {
-      smsHeader: 'BreatheSafe PUBLIC WARNING (HIGH RISK)',
-      smsBody: `Location: ${location}\nTime: ${time}\nAir Quality: ${airQuality}\nHealth Risk: Potential for dizziness, fatigue, and breathing discomfort.\nCommunity Action: Stay indoors where possible. Suspend heavy outdoor activities.`,
+      smsHeader: 'BreatheSafe Warning (High Risk Condition)',
+      smsBody: `Location: ${location}\nTime: ${time}\nAir Quality: ${airQuality}\nHealth Rec: Potential for dizziness and breathing discomfort. Stay indoors if possible.\n\nCall to Action: Avoid outdoor strenuous activities. Use air purifiers indoors. Keep emergency contacts ready.`,
       toastType: 'warn',
       toastTitle: 'High Risk Condition',
       toastMessage: `Public Warning: Poor air quality and high heat at ${location}. Community advised to stay indoors and hydrate.`
     },
     danger: {
-      smsHeader: 'BreatheSafe EMERGENCY ALERT (CRITICAL)',
-      smsBody: `Location: ${location}\nTime: ${time}\nAir Quality: ${airQuality}\nCRITICAL RISK: Hazardous air and extreme heat levels detected.\nURGENT ACTION: Clear outdoor areas immediately. Ensure everyone is in a safe environment.`,
+      smsHeader: 'BreatheSafe Warning (Critical Condition)',
+      smsBody: `Location: ${location}\nTime: ${time}\nAir Quality: ${airQuality}\nHealth Rec: Hazardous air levels. Clear outdoor areas immediately. Seek safe environment.\n\nCall to Action: EVACUATE to safe indoor areas immediately. Use N95 masks if available. Contact emergency services if experiencing severe symptoms.`,
       toastType: 'error',
       toastTitle: 'Critical Health Alert',
       toastMessage: `Emergency Alert: Hazardous conditions at ${location}. Immediate safety measures required for the community.`
     },
     normal: {
-      smsHeader: 'BreatheSafe Awareness Update',
-      smsBody: `Location: ${location}\nTime: ${time}\nStatus: All environmental parameters are currently within safe ranges.\nNote: Air quality is Good.`,
+      smsHeader: 'Manual Advisory: BreatheSafe Update',
+      smsBody: `Location: ${location}\nTime: ${time}\nAir Quality: ${airQuality}\nStatus: All parameters within safe ranges.\n\nCall to Action: Continue normal outdoor activities. Stay informed about local air quality changes.`,
       toastType: 'success',
       toastTitle: 'Environment Safe',
       toastMessage: `Awareness Update: Air quality and temperature at ${location} are within optimal safety ranges.`
@@ -712,7 +807,7 @@ function showDashboardToast(type, title, message, duration = 6000) {
 }
 
 let devices = [
-  { id:'AW-001', name:'Air Quality Monitor', location:'Your Location', lat:8.4542, lng:124.6319, status:'online', aqi:0, temp:0, hum:0, battery:100, lastReadingTime: null }
+  { id:'AW-001', name:'Air Quality Monitor', location:'School Campus', lat: null, lng: null, status:'online', aqi:0, temp:0, hum:0, battery:100, lastReadingTime: null }
 ];
 let users = [
   { id:'USR-001', name:'Admin User', email:'admin@system.com', role:'admin', dept:'System', status:'active', created:'2024-01-10' },
@@ -880,7 +975,11 @@ async function loadOverview() {
           aqi: latest ? (latest.aqi_value || 0) : 0,
           temp: latest ? (latest.temperature || 0) : 0,
           hum: latest ? (latest.humidity || 0) : 0,
-          co2: latest ? Math.round((latest.mq135_raw || 0) * 0.12) : 0,
+          mq135_raw: latest ? (latest.mq135_raw || 0) : 0,
+          co2: latest ? (latest.co2_ppm || 0) : 0,
+          nh3: latest ? (latest.nh3_ppm || 0) : 0,
+          benzene: latest ? (latest.benzene_ppm || 0) : 0,
+          alcohol: latest ? (latest.alcohol_ppm || 0) : 0,
           battery: 100,
           lastSeen: latest ? formatTimeAgo(latest.created_at) : 'Never',
           lastReadingTime: latest ? latest.created_at : null
@@ -913,6 +1012,16 @@ async function loadOverview() {
     }
   }
 
+  // Fetch SMS stats
+  let smsStats = { pending: 0, sent: 0, failed: 0, total: 0 };
+  if (usingRealData) {
+    try {
+      smsStats = await Database.getSMSStats();
+    } catch (e) {
+      console.warn('Could not fetch SMS stats:', e);
+    }
+  }
+
   const fmtNum = n => n !== null && n !== undefined ? n.toLocaleString() : '--';
   const summaryReadings = document.getElementById('summary-readings');
   const summaryDevices = document.getElementById('summary-devices');
@@ -921,6 +1030,12 @@ async function loadOverview() {
   const summaryLastUpdate = document.getElementById('summary-last-update');
   const summaryDataSource = document.getElementById('summary-data-source');
   const summaryStatus = document.getElementById('summary-status');
+
+  // SMS summary elements
+  const smsPending = document.getElementById('sms-pending');
+  const smsSent = document.getElementById('sms-sent');
+  const smsFailed = document.getElementById('sms-failed');
+  const smsTotal = document.getElementById('sms-total');
 
   if (summaryReadings) summaryReadings.textContent = fmtNum(stats.totalReadings);
   if (summaryDevices) summaryDevices.textContent = fmtNum(stats.totalDevices);
@@ -932,6 +1047,12 @@ async function loadOverview() {
     summaryStatus.textContent = usingRealData ? '🟢 System Online' : '🟡 Offline Mode';
     summaryStatus.style.color = usingRealData ? 'var(--green)' : 'var(--yellow)';
   }
+
+  // Update SMS summary
+  if (smsPending) smsPending.textContent = fmtNum(smsStats.pending);
+  if (smsSent) smsSent.textContent = fmtNum(smsStats.sent);
+  if (smsFailed) smsFailed.textContent = fmtNum(smsStats.failed);
+  if (smsTotal) smsTotal.textContent = fmtNum(smsStats.total);
 
   const loadingIndicator = document.getElementById('map-loading');
   if (loadingIndicator) loadingIndicator.style.display = 'block';
@@ -952,13 +1073,24 @@ async function loadOverview() {
 
     if (!adminMap) {
       try {
+        const device = devices[0];
+        const centerLat = device?.lat || 8.4542;
+        const centerLng = device?.lng || 124.6319;
+        
         adminMap = L.map('overview-map', {
-          zoomControl: true,
-          center: [8.4542, 124.6319],
-          zoom: 15
-        }).setView([8.4542, 124.6319], 15);
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-          attribution: '© OpenStreetMap',
+          zoomControl:        false,
+          attributionControl: false,
+          dragging:           false,
+          scrollWheelZoom:    false,
+          doubleClickZoom:    false,
+          touchZoom:          false,
+          boxZoom:            false,
+          keyboard:           false,
+          center: [centerLat, centerLng],
+          zoom: 17
+        }).setView([centerLat, centerLng], 17);
+        L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+          attribution: 'Tiles © Esri',
           maxZoom: 19
         }).addTo(adminMap);
         setTimeout(() => {
@@ -983,34 +1115,60 @@ async function loadOverview() {
     if (adminMarkers['overview-map']) adminMarkers['overview-map'].forEach(mk => mk.remove());
     adminMarkers['overview-map'] = [];
 
+    // Default/false coordinates check — the Arduino uses 8.4542, 124.6319 as a placeholder
+    const DEFAULT_LAT = 8.4542;
+    const DEFAULT_LNG = 124.6319;
+    const isFalseGPS = (lat, lng) => Math.abs(lat - DEFAULT_LAT) < 0.0001 && Math.abs(lng - DEFAULT_LNG) < 0.0001;
+
+    // Show 'No location detected' overlay if all devices have false GPS
+    const noGPSOverlay = document.getElementById('map-no-gps');
+    const allFakeGPS = devices.every(d => !d.lat || !d.lng || isFalseGPS(d.lat, d.lng));
+    if (allFakeGPS) {
+      if (!noGPSOverlay) {
+        const overlay = document.createElement('div');
+        overlay.id = 'map-no-gps';
+        overlay.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;background:rgba(10,15,25,0.75);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:500;pointer-events:none;';
+        overlay.innerHTML = '<div style="font-size:28px;margin-bottom:8px;">📡</div><div style="font-size:13px;font-weight:700;color:#fff;">No GPS Location Detected</div><div style="font-size:11px;color:rgba(255,255,255,0.6);margin-top:4px;">GPS module is searching for a fix…</div>';
+        document.getElementById('overview-map')?.parentElement.appendChild(overlay);
+      }
+    } else {
+      document.getElementById('map-no-gps')?.remove();
+    }
+
     devices.forEach(device => {
       if (!device.lat || !device.lng) return;
       const color = aqiColor(device.aqi);
-      const mk = L.circleMarker([device.lat, device.lng], {
+      const markerLat = device.lat;
+      const markerLng = device.lng;
+
+      const mk = L.circleMarker([markerLat, markerLng], {
         radius: 12,
         color,
         fillColor: color,
-        fillOpacity: 0.75,
+        fillOpacity: isDefaultPos ? 0.3 : 0.8,
         weight: 2
       }).addTo(adminMap);
+
       mk.bindPopup(`
-        <div style="min-width:200px;font-family:'Sora',sans-serif;">
-          <div style="font-weight:600;font-size:13px;margin-bottom:6px;">${device.name}</div>
-          <div style="font-size:11px;color:#8fa3bc;margin-bottom:8px;">${device.location} · <b>${device.id}</b></div>
+        <div style="min-width:210px;font-family:'Sora',sans-serif;">
+          <div style="font-weight:700;font-size:13px;margin-bottom:4px;">${device.name}</div>
+          <div style="font-size:11px;color:#8fa3bc;margin-bottom:8px;">${device.location} &middot; <b>${device.id}</b></div>
+          ${isDefaultPos ? '<div style="font-size:10px;color:#f59e0b;margin-bottom:8px;">⚠️ GPS not fixed &mdash; showing default position</div>' : ''}
           <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
-            <div style="font-size:32px;font-weight:700;color:${color};font-family:'DM Mono',monospace;">${device.aqi}</div>
+            <div style="font-size:30px;font-weight:700;color:${color};font-family:monospace;">${device.aqi}</div>
             <div>
-              <div style="font-size:11px;font-weight:600;color:${color}">${aqiLabel(device.aqi)}</div>
-              <div style="font-size:10px;color:#8fa3bc;">Arduino AQI</div>
+              <div style="font-size:11px;font-weight:700;color:${color};">${aqiLabel(device.aqi)}</div>
+              <div style="font-size:10px;color:#8fa3bc;">AQI</div>
             </div>
           </div>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;font-size:11px;">
-            <div>🌡 ${device.temp}°C</div><div>💧 ${device.hum}%</div>
-            <div>☁ CO₂ ${device.co2}ppm</div><div>🔋 ${device.battery}%</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;font-size:11px;margin-bottom:8px;">
+            <div>&#127777; ${device.temp}&deg;C</div><div>&#128167; ${device.hum}%</div>
+            <div>&#9729; CO₂ ${device.co2 || '--'}ppm</div><div>&#129514; NH₃ ${device.nh3 || '--'}ppm</div>
           </div>
-          <div style="margin-top:6px;font-size:10px;color:#8fa3bc;">Last seen: ${device.lastSeen}</div>
+          <div style="font-size:10px;color:#8fa3bc;">Last seen: ${device.lastSeen}</div>
         </div>
       `);
+      mk.on('click', () => mk.openPopup());
       adminMarkers['overview-map'].push(mk);
     });
 
@@ -1030,7 +1188,9 @@ async function loadOverview() {
               <div>🌡 <strong>${device.temp}°C</strong></div>
               <div>💧 <strong>${device.hum}%</strong></div>
               <div>☁ <strong>${device.co2}ppm</strong></div>
-              <div>🔋 <strong>${device.battery}%</strong></div>
+              <div>🧪 <strong>${device.nh3}ppm</strong></div>
+              <div>⚗ <strong>${device.benzene}ppm</strong></div>
+              <div>🍺 <strong>${device.alcohol}ppm</strong></div>
             </div>
             <div style="margin-top:6px;font-size:10px;color:var(--text3);">
               Device: ${device.name}<br>
@@ -1069,16 +1229,17 @@ async function loadOverview() {
   }
 
   await loadArduinoReadingsTable();
+  await loadSMSHistory();
   const currentDevice = devices[0];
   const metricsEl = document.getElementById('admin-metrics');
   if (metricsEl) {
     metricsEl.innerHTML = [
-      {label:'Current AQI',val:currentDevice.aqi,unit:'',color:currentDevice.aqi <= 50 ? 'var(--green)' : currentDevice.aqi <= 100 ? 'var(--yellow)' : 'var(--red)'},
+      {label:'Current AQI',val:currentDevice.aqi,unit:'',color:currentDevice.aqi <= 700 ? 'var(--green)' : currentDevice.aqi <= 1500 ? 'var(--yellow)' : 'var(--red)'},
       {label:'Temperature',val:currentDevice.temp,unit:'°C',color:'var(--orange)'},
       {label:'Humidity',val:currentDevice.hum,unit:'%',color:'var(--teal)'},
       {label:'CO₂ Level',val:currentDevice.co2,unit:'ppm',color:'var(--accent)'},
-      {label:'Total Readings',val:(stats && stats.totalReadings !== null ? stats.totalReadings : '--'),unit:'',color:'var(--purple)'},
-      {label:'Device Status',val:currentDevice.status,unit:'',color:currentDevice.status === 'online' ? 'var(--green)' : 'var(--red)'}
+      {label:'NH₃ Level',val:currentDevice.nh3,unit:'ppm',color:'var(--purple)'},
+      {label:'Benzene',val:currentDevice.benzene,unit:'ppm',color:'var(--red)'}
     ].map(m => `<div class="metric-card"><div class="mc-label">${m.label}</div><div class="mc-value" style="color:${m.color}">${m.val}<span class="mc-unit">${m.unit}</span></div></div>`).join('');
   }
 
@@ -1159,16 +1320,31 @@ async function loadArduinoReadingsTable() {
       // 1. Resolve AQI (Use DB value, or fallback to calculation, or 0)
       let displayAqi = reading.aqi_value;
       if (displayAqi === null || displayAqi === undefined) {
-        displayAqi = reading.mq135_raw ? Math.max(0, Math.round((reading.mq135_raw - 150) * 300 / 2350)) : 0;
+        displayAqi = (reading.mq135_raw !== null && reading.mq135_raw !== undefined)
+          ? Math.max(0, Math.round((reading.mq135_raw - 150) * 300 / 2350))
+          : 0;
       }
-      
+
       const aqiColorValue = aqiColor(displayAqi);
-      
-      // 2. Resolve CO2 (Use DB value or fallback with 400ppm baseline)
-      const co2Val = reading.co2_ppm ? Math.round(reading.co2_ppm) : Math.round((reading.mq135_raw || 0) * 0.12 + 400);
-      
-      // 3. Resolve Alcohol
-      const alcVal = (reading.alcohol_ppm !== null && reading.alcohol_ppm !== undefined) ? reading.alcohol_ppm.toFixed(1) : '--';
+
+      // 2. Resolve MQ135 Raw — show actual 0 if sensor reported 0, only '--' if missing
+      const rawVal = (reading.mq135_raw !== null && reading.mq135_raw !== undefined)
+        ? reading.mq135_raw
+        : '--';
+
+      // 3. Resolve CO₂ — use DB value if present, otherwise estimate from raw
+      let co2Val;
+      if (reading.co2_ppm !== null && reading.co2_ppm !== undefined) {
+        co2Val = Math.round(reading.co2_ppm);
+      } else if (reading.mq135_raw !== null && reading.mq135_raw !== undefined) {
+        co2Val = Math.round(reading.mq135_raw * 0.12 + 400) + ' (est)';
+      } else {
+        co2Val = '--';
+      }
+
+      const nh3Val     = (reading.nh3_ppm     !== null && reading.nh3_ppm     !== undefined) ? reading.nh3_ppm.toFixed(1)     : '--';
+      const benzeneVal = (reading.benzene_ppm !== null && reading.benzene_ppm !== undefined) ? reading.benzene_ppm.toFixed(1) : '--';
+      const alcVal     = (reading.alcohol_ppm !== null && reading.alcohol_ppm !== undefined) ? reading.alcohol_ppm.toFixed(1) : '--';
 
       return `
         <tr style="${index === 0 ? 'background:rgba(34,197,94,0.1);' : ''}">
@@ -1177,10 +1353,12 @@ async function loadArduinoReadingsTable() {
           <td><span class="status-badge" style="background:${aqiColorValue}20; color:${aqiColorValue}; font-size:10px;">${reading.aqi_category || aqiLabel(displayAqi)}</span></td>
           <td style="font-family:var(--mono);">${(reading.temperature !== null && reading.temperature !== undefined) ? reading.temperature.toFixed(1) + '°C' : '--'}</td>
           <td style="font-family:var(--mono);">${(reading.humidity !== null && reading.humidity !== undefined) ? reading.humidity.toFixed(0) + '%' : '--'}</td>
-          <td style="font-family:var(--mono); color:var(--purple);">${reading.mq135_raw || '--'}</td>
+          <td style="font-family:var(--mono); color:var(--purple);">${rawVal}</td>
           <td style="font-family:var(--mono); font-size:10px;">
             <div style="color:var(--accent);">CO₂: ${co2Val}</div>
-            <div style="color:var(--teal); opacity:0.8;">ALC: ${alcVal}</div>
+            <div style="color:var(--purple);">NH₃: ${nh3Val}</div>
+            <div style="color:var(--red);">Benzene: ${benzeneVal}</div>
+            <div style="color:var(--teal);">Alc: ${alcVal}</div>
           </td>
           <td><span class="status-badge status-online" style="font-size:10px;">✅ Valid</span></td>
         </tr>
@@ -1196,6 +1374,83 @@ async function loadArduinoReadingsTable() {
 
 function refreshArduinoReadings() {
   loadArduinoReadingsTable();
+}
+
+async function loadSMSHistory() {
+  try {
+    const smsNotifications = await Database.getSMSNotifications(15);
+    const tbody = document.getElementById('sms-history-body');
+    if (!tbody) return;
+
+    if (!smsNotifications || smsNotifications.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--text2);padding:20px;">No broadcast history</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = smsNotifications.map(sms => {
+      const status = sms.status || 'pending';
+      const statusStyles = {
+        sent:    { color: 'var(--green)',  bg: 'rgba(34,197,94,0.12)',  label: '✅ Sent' },
+        pending: { color: 'var(--yellow)', bg: 'rgba(251,191,36,0.12)', label: '⏳ Pending' },
+        failed:  { color: 'var(--red)',    bg: 'rgba(239,68,68,0.12)',  label: '❌ Failed' }
+      };
+      const s = statusStyles[status] || statusStyles.pending;
+      const statusBadge = `<span style="color:${s.color};background:${s.bg};padding:2px 8px;border-radius:20px;font-size:10px;font-weight:700;">${s.label}</span>`;
+      const timeAgo = sms.created_at ? formatTimeAgo(sms.created_at) : '—';
+      const fullTime = sms.created_at ? new Date(sms.created_at).toLocaleString() : 'Unknown';
+      const messagePreview = sms.message ? sms.message.substring(0, 55) + (sms.message.length > 55 ? '…' : '') : 'No message';
+      const errorHint = (status === 'pending' && sms.error_message) ? `<div style="font-size:9px;color:var(--yellow);margin-top:2px;">⚠️ ${sms.error_message}</div>` : '';
+
+      return `
+        <tr>
+          <td style="font-size:11px;color:var(--text2);" title="${fullTime}">${timeAgo}</td>
+          <td style="font-family:var(--mono);font-size:12px;">${sms.phone_number || '—'}</td>
+          <td>${statusBadge}</td>
+          <td style="font-size:11px;color:var(--text3);max-width:220px;">
+            <div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${messagePreview}</div>
+            ${errorHint}
+          </td>
+          <td>
+            <button class="btn btn-danger btn-sm" onclick="deleteSMSRecord(${sms.id})" title="Delete record">🗑</button>
+          </td>
+        </tr>
+      `;
+    }).join('');
+  } catch (error) {
+    console.error('Error loading SMS history:', error);
+    const tbody = document.getElementById('sms-history-body');
+    if (tbody) tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--red);padding:20px;">Error loading broadcast history</td></tr>';
+  }
+}
+
+async function deleteSMSRecord(smsId) {
+  showConfirmModal('Delete Record', 'Remove this SMS record from history? This cannot be undone.', async () => {
+    try {
+      const res = await fetch(`${DB_CONFIG.url}/rest/v1/${DB_TABLES.smsNotifications}?id=eq.${smsId}`, {
+        method: 'DELETE',
+        headers: {
+          'apikey': DB_CONFIG.anonKey,
+          'Authorization': `Bearer ${DB_CONFIG.anonKey}`,
+          'Prefer': 'return=minimal'
+        }
+      });
+      if (res.status !== 204 && res.status !== 200) {
+        const errText = await res.text().catch(() => res.statusText);
+        throw new Error(`HTTP ${res.status}: ${errText}`);
+      }
+      showDashboardToast('success', 'Record Deleted', 'SMS broadcast record removed.');
+      loadSMSHistory();
+      if (typeof loadSMSStatsForUsersPage === 'function') loadSMSStatsForUsersPage();
+    } catch (e) {
+      console.error('Delete SMS record failed:', e);
+      showDashboardToast('error', 'Delete Failed', e.message);
+    }
+  }, 'danger');
+}
+
+function viewSMSMessage(encodedMessage) {
+  const message = decodeURIComponent(encodedMessage);
+  showConfirmModal('SMS Message Content', message, () => {}, 'info');
 }
 
 function viewAllReadings() {
@@ -1844,9 +2099,23 @@ function initDevicesMap() {
     updateDevicesMapMarkers();
     return;
   }
-  devicesPageMap = L.map('devices-page-map', { zoomControl: true }).setView([8.4542, 124.6319], 13);
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '© OpenStreetMap', maxZoom: 19
+
+  const device = devices[0];
+  const centerLat = device?.lat || 8.4542;
+  const centerLng = device?.lng || 124.6319;
+
+  devicesPageMap = L.map('devices-page-map', {
+    zoomControl:        false,
+    attributionControl: false,
+    dragging:           false,
+    scrollWheelZoom:    false,
+    doubleClickZoom:    false,
+    touchZoom:          false,
+    boxZoom:            false,
+    keyboard:           false
+  }).setView([centerLat, centerLng], 17);
+  L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+    attribution: 'Tiles \u00a9 Esri', maxZoom: 19
   }).addTo(devicesPageMap);
   setTimeout(() => { devicesPageMap.invalidateSize(); updateDevicesMapMarkers(); }, 200);
 }
@@ -2024,7 +2293,7 @@ function editDeviceFromDetail() {
 async function loadDevices() {
   const table = document.getElementById('devices-table');
   if (!table) return;
-  table.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--text2);padding:20px;">Loading devices from database...</td></tr>';
+  table.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--text2);padding:20px;">Loading devices from database...</td></tr>';
   try {
     const [dbDevices, latestReadings] = await Promise.all([
       Database.getDevices(),
@@ -2033,19 +2302,21 @@ async function loadDevices() {
 
     if (dbDevices && dbDevices.length > 0) {
       devices = await Promise.all(dbDevices.map(async d => {
-        // Fetch the specific latest reading for THIS device
         const latestResponse = await fetch(`${DB_CONFIG.url}/rest/v1/${DB_TABLES.readings}?device_id=eq.${d.device_id}&select=*&order=created_at.desc&limit=1`, {
           headers: { 'apikey': DB_CONFIG.anonKey, 'Authorization': `Bearer ${DB_CONFIG.anonKey}` }
         });
         const latestData = await latestResponse.json();
         const latest = latestData && latestData.length > 0 ? latestData[0] : null;
 
+        // Prefer GPS from latest reading if device table has no fix yet
+        const lat = d.latitude  || (latest?.latitude)  || null;
+        const lng = d.longitude || (latest?.longitude) || null;
+
         return {
           id: d.device_id,
           name: d.name,
           location: d.location,
-          lat: d.latitude,
-          lng: d.longitude,
+          lat, lng,
           status: d.status,
           aqi: latest ? latest.aqi_value : null,
           temp: latest ? latest.temperature : null,
@@ -2056,42 +2327,55 @@ async function loadDevices() {
       }));
     }
 
+    // ── Remove side panel if it exists from a previous load ──
+    const existingPanel = document.getElementById('device-loc-panel');
+    if (existingPanel) existingPanel.remove();
+    const mapCard = document.querySelector('.card[style*="margin-bottom"]');
+    if (mapCard) { mapCard.style.display = ''; mapCard.style.gridTemplateColumns = ''; mapCard.style.gap = ''; }
+
     table.innerHTML = `
       <thead>
         <tr>
           <th>Device ID</th><th>Name</th><th>Location</th>
+          <th>GPS Coordinates</th>
           <th>Status</th><th>AQI</th><th>Temp/Hum</th><th>Actions</th>
         </tr>
       </thead>
       <tbody>
-        ${devices.length > 0 ? devices.map(device => `
+        ${devices.length > 0 ? devices.map(device => {
+          const hasCoords = device.lat && device.lng;
+          const coordStr = hasCoords
+            ? `<span style="font-family:var(--mono);font-size:10px;color:var(--green);">${device.lat.toFixed(5)},<br>${device.lng.toFixed(5)}</span>`
+            : '<span style="color:var(--text3);font-size:10px;">⏳ No GPS fix</span>';
+          return `
           <tr>
             <td style="font-family:var(--mono);">${device.id}</td>
             <td>${device.name}</td>
-            <td>${device.location}</td>
+            <td>${device.location || '--'}</td>
+            <td>${coordStr}</td>
             <td><span class="status-badge status-${device.status}">${device.status}</span></td>
             <td style="text-align:center;">
-              ${device.aqi !== null ? 
-                `<b style="color:${aqiColor(device.aqi)}; font-family:var(--mono); font-size:14px;">${device.aqi}</b>` : 
+              ${device.aqi !== null ?
+                `<b style="color:${aqiColor(device.aqi)}; font-family:var(--mono); font-size:14px;">${device.aqi}</b>` :
                 `<span style="color:var(--text3); font-size:11px;">No Data</span>`
               }
             </td>
             <td style="font-size:11px;font-family:var(--mono);">
-              ${device.temp !== null ? device.temp.toFixed(1) + '°C' : '--'} / ${device.hum !== null ? device.hum.toFixed(0) + '%' : '--'}
+              ${device.temp !== null ? device.temp.toFixed(1) + '\u00b0C' : '--'} / ${device.hum !== null ? device.hum.toFixed(0) + '%' : '--'}
             </td>
             <td style="display:flex;gap:4px;">
-              <button class="btn btn-success btn-sm" onclick="openDeviceDetail('${device.id}')">👁 View</button>
+              <button class="btn btn-success btn-sm" onclick="openDeviceDetail('${device.id}')">\uD83D\uDC41 View</button>
               <button class="btn btn-ghost btn-sm" onclick="editDevice('${device.id}')">Edit</button>
               <button class="btn btn-danger btn-sm" onclick="deleteDevice('${device.id}')">Delete</button>
             </td>
           </tr>
-        `).join('') : '<tr><td colspan="7" style="text-align:center;padding:20px;">No devices found. Add your first device!</td></tr>'}
+        `}).join('') : '<tr><td colspan="8" style="text-align:center;padding:20px;">No devices found. Add your first device!</td></tr>'}
       </tbody>
     `;
     setTimeout(() => initDevicesMap(), 150);
   } catch (error) {
     console.error('Error loading devices:', error);
-    table.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--red);padding:20px;">Error loading devices from database</td></tr>';
+    table.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--red);padding:20px;">Error loading devices from database</td></tr>';
   }
 }
 
@@ -2150,6 +2434,17 @@ async function loadUsers() {
 }
 
 function showAddSMSUserModal() {
+  // Always reset to "Add" mode before opening
+  const modal = document.getElementById('sms-user-modal');
+  if (modal) delete modal.dataset.editingId;
+  const modalTitle = document.querySelector('#sms-user-modal .modal-title');
+  if (modalTitle) modalTitle.textContent = '📢 Register for Community Advisories';
+  const saveBtn = document.querySelector('#sms-user-modal .btn-primary');
+  if (saveBtn) { saveBtn.textContent = 'Register for Alerts'; saveBtn.onclick = saveSMSUser; }
+  // Clear all fields
+  ['sms-user-name','sms-user-phone','sms-user-email'].forEach(id => {
+    const el = document.getElementById(id); if (el) el.value = '';
+  });
   showModal('sms-user-modal');
 }
 
@@ -2171,6 +2466,7 @@ async function loadSMSUsers() {
         <td><span class="status-badge status-${user.is_active ? 'online' : 'offline'}">${user.is_active ? 'Active' : 'Inactive'}</span></td>
         <td style="font-size:11px;color:var(--text2);">${user.last_alert ? formatTimeAgo(user.last_alert) : 'Never'}</td>
         <td>
+          <button class="btn btn-primary btn-sm" onclick="editSMSUser('${user.id}')">✏️ Edit</button>
           <button class="btn btn-primary btn-sm" onclick="triggerManualSMS('${user.phone_number}', '${user.name}')">📤 Broadcast</button>
           <button class="btn btn-danger btn-sm" onclick="deleteSMSUser('${user.id}')">Delete</button>
         </td>
@@ -2186,60 +2482,159 @@ async function loadSMSUsers() {
       labelEl.textContent = `Auto-Broadcast: ${autoSms ? 'ON' : 'OFF'}`;
       labelEl.style.color = autoSms ? 'var(--green)' : 'var(--text3)';
     }
+
+    // Load SMS stats and history
+    await loadSMSStatsForUsersPage();
+    await loadSMSHistory();
   } catch (error) {
     console.error('Error loading SMS users:', error);
     tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--red);padding:20px;">Error loading SMS subscribers</td></tr>';
   }
 }
 
+async function loadSMSStatsForUsersPage() {
+  try {
+    const smsStats = await Database.getSMSStats();
+    const fmtNum = n => n !== null && n !== undefined ? n.toLocaleString() : '--';
+    
+    const smsPending = document.getElementById('sms-pending');
+    const smsSent = document.getElementById('sms-sent');
+    const smsFailed = document.getElementById('sms-failed');
+    const smsTotal = document.getElementById('sms-total');
+
+    if (smsPending) smsPending.textContent = fmtNum(smsStats.pending);
+    if (smsSent) smsSent.textContent = fmtNum(smsStats.sent);
+    if (smsFailed) smsFailed.textContent = fmtNum(smsStats.failed);
+    if (smsTotal) smsTotal.textContent = fmtNum(smsStats.total);
+  } catch (error) {
+    console.error('Error loading SMS stats for users page:', error);
+  }
+}
+
 async function saveSMSUser() {
-  const name = document.getElementById('sms-user-name')?.value.trim();
+  const name  = document.getElementById('sms-user-name')?.value.trim();
   const phone = document.getElementById('sms-user-phone')?.value.trim();
   const email = document.getElementById('sms-user-email')?.value.trim();
-  const deviceId = document.getElementById('sms-user-device')?.value;
-  let threshold = parseInt(document.getElementById('sms-user-threshold')?.value);
-  if (isNaN(threshold) || threshold < 1) threshold = 100; // Force default if empty or invalid
+  const threshold = 100; // Fixed default — not exposed to user
   const phoneRegex = /^\+63[0-9]{10}$/;
-  if (!phoneRegex.test(phone)) { 
-    showDashboardToast('error', 'Invalid Phone', 'Please enter a valid Philippine phone number: +63XXXXXXXXXX');
-    return; 
-  }
-  if (!name) { 
+  if (!name) {
     showDashboardToast('error', 'Missing Name', 'Please enter a name for the subscriber.');
-    return; 
+    return;
   }
-  const userData = { name, phone_number: phone, email: email || null, device_id: deviceId, aqi_threshold: threshold, is_active: true };
+  if (!phoneRegex.test(phone)) {
+    showDashboardToast('error', 'Invalid Phone', 'Please enter a valid Philippine phone number: +63XXXXXXXXXX');
+    return;
+  }
+  const userData = { name, phone_number: phone, email: email || null, device_id: 'AW-001', aqi_threshold: threshold, is_active: true };
   try {
     await Database.registerSMSUser(userData);
-    console.log('✅ SMS user registered:', name);
     closeModal('sms-user-modal');
-    document.getElementById('sms-user-name').value = '';
-    document.getElementById('sms-user-phone').value = '';
-    document.getElementById('sms-user-email').value = '';
+    ['sms-user-name','sms-user-phone','sms-user-email'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
     loadSMSUsers();
     logRoleActivity('admin', 'success', `Registered SMS subscriber: ${name} (${phone})`, 'user');
-    showDashboardToast('success', 'Subscriber Registered', `User ${name} has been successfully registered for SMS alerts.`);
+    showDashboardToast('success', 'Subscriber Registered', `${name} has been registered for SMS alerts.`);
   } catch (error) {
     console.error('Error registering SMS user:', error);
     showDashboardToast('error', 'Registration Failed', error.message);
   }
 }
 
+async function editSMSUser(userId) {
+  try {
+    const smsUsers = await Database.getNotificationUsers();
+    const user = smsUsers.find(u => String(u.id) === String(userId));
+    if (!user) {
+      showDashboardToast('error', 'User Not Found', `Unable to find SMS subscriber with ID: ${userId}`);
+      return;
+    }
+
+    // Populate form fields
+    document.getElementById('sms-user-name').value  = user.name || '';
+    document.getElementById('sms-user-phone').value = user.phone_number || '';
+    document.getElementById('sms-user-email').value = user.email || '';
+
+    // Store the user ID for update
+    document.getElementById('sms-user-modal').dataset.editingId = userId;
+
+    // Switch modal to Edit mode
+    const modalTitle = document.querySelector('#sms-user-modal .modal-title');
+    if (modalTitle) modalTitle.textContent = '✏️ Edit SMS Recipient';
+    const saveBtn = document.querySelector('#sms-user-modal .btn-primary');
+    if (saveBtn) { saveBtn.textContent = 'Update Recipient'; saveBtn.onclick = updateSMSUser; }
+
+    showModal('sms-user-modal');
+  } catch (error) {
+    console.error('Error editing SMS user:', error);
+    showDashboardToast('error', 'Edit Failed', 'Unable to load the SMS subscriber details.');
+  }
+}
+
+async function updateSMSUser() {
+  const modal = document.getElementById('sms-user-modal');
+  const userId = modal.dataset.editingId;
+
+  if (!userId) {
+    showDashboardToast('error', 'Error', 'No user selected for editing.');
+    return;
+  }
+
+  const name  = document.getElementById('sms-user-name')?.value.trim();
+  const phone = document.getElementById('sms-user-phone')?.value.trim();
+  const email = document.getElementById('sms-user-email')?.value.trim();
+  const threshold = 100; // Always kept at 100
+
+  if (!name) {
+    showDashboardToast('error', 'Missing Name', 'Please enter a name for the subscriber.');
+    return;
+  }
+  const phoneRegex = /^\+63[0-9]{10}$/;
+  if (!phoneRegex.test(phone)) {
+    showDashboardToast('error', 'Invalid Phone', 'Please enter a valid Philippine phone number: +63XXXXXXXXXX');
+    return;
+  }
+
+  const userData = { name, phone_number: phone, email: email || null, aqi_threshold: threshold };
+
+  try {
+    await Database.updateSMSUser(userId, userData);
+    closeModal('sms-user-modal');
+
+    // Reset modal to Add mode
+    delete modal.dataset.editingId;
+    const modalTitle = document.querySelector('#sms-user-modal .modal-title');
+    if (modalTitle) modalTitle.textContent = '📢 Register for Community Advisories';
+    const saveBtn = document.querySelector('#sms-user-modal .btn-primary');
+    if (saveBtn) { saveBtn.textContent = 'Register for Alerts'; saveBtn.onclick = saveSMSUser; }
+    ['sms-user-name','sms-user-phone','sms-user-email'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+
+    loadSMSUsers();
+    logRoleActivity('admin', 'success', `Updated SMS subscriber: ${name} (${phone})`, 'user');
+    showDashboardToast('success', 'Recipient Updated', `${name} has been successfully updated.`);
+  } catch (error) {
+    console.error('Error updating SMS user:', error);
+    showDashboardToast('error', 'Update Failed', error.message);
+  }
+}
+
 async function deleteSMSUser(userId) {
+  console.log('🗑️ deleteSMSUser called with userId:', userId);
+  if (!userId) {
+    console.error('❌ userId is undefined or null');
+    showDashboardToast('error', 'Delete Failed', 'User ID is missing. Cannot delete.');
+    return;
+  }
+  
   showConfirmModal('Delete Subscriber', 'Are you sure you want to remove this SMS subscriber? They will no longer receive environmental alerts.', async () => {
     try {
-      const success = await Database.deleteSMSUser(userId);
-      if (success) {
-        console.log('✅ SMS user deleted');
-        loadSMSUsers();
-        logRoleActivity('admin', 'warn', `Removed SMS subscriber (ID: ${userId})`, 'user');
-        showDashboardToast('success', 'Subscriber Removed', 'The SMS subscriber has been successfully removed.');
-      } else {
-        throw new Error('Delete failed');
-      }
+      console.log('🗑️ Attempting to delete user with ID:', userId);
+      await Database.deleteSMSUser(userId);
+      console.log('✅ SMS user deleted successfully');
+      loadSMSUsers();
+      logRoleActivity('admin', 'warn', `Removed SMS subscriber (ID: ${userId})`, 'user');
+      showDashboardToast('success', 'Subscriber Removed', 'The SMS subscriber has been successfully removed.');
     } catch (error) {
-      console.error('Error deleting SMS user:', error);
-      showDashboardToast('error', 'Delete Failed', 'Unable to remove the SMS subscriber.');
+      console.error('❌ Error deleting SMS user:', error);
+      showDashboardToast('error', 'Delete Failed', `Unable to remove the SMS subscriber: ${error.message}`);
     }
   });
 }
@@ -2263,6 +2658,32 @@ function toggleAutoSMS() {
 }
 
 async function triggerManualSMS(phone, name) {
+  // Check cooldown before allowing manual broadcast
+  const smsSettings = JSON.parse(localStorage.getItem('smsSettings') || '{}');
+  const cooldownMinutes = smsSettings.cooldown || 30;
+  const cooldownMs = cooldownMinutes * 60 * 1000;
+  
+  try {
+    // Fetch recent SMS for this phone number to check cooldown
+    const recentSMS = await Database.getSMSNotifications(10);
+    const lastSMSForPhone = recentSMS.find(s => s.phone_number === phone);
+    
+    if (lastSMSForPhone && lastSMSForPhone.created_at) {
+      const lastSent = new Date(lastSMSForPhone.created_at);
+      const now = new Date();
+      const timeSinceLast = now - lastSent;
+      
+      if (timeSinceLast < cooldownMs) {
+        const remainingMinutes = Math.ceil((cooldownMs - timeSinceLast) / (60 * 1000));
+        showDashboardToast('warn', 'Cooldown Active', `Please wait ${remainingMinutes} minutes before sending another alert to ${name}.`);
+        return;
+      }
+    }
+  } catch (e) {
+    console.warn('Could not check SMS cooldown:', e);
+    // Continue anyway if cooldown check fails
+  }
+
   showConfirmModal('Send Manual Alert', `Are you sure you want to send an immediate air quality advisory to ${name} (${phone})?`, async () => {
     try {
       const device = devices[0];
@@ -2278,9 +2699,10 @@ async function triggerManualSMS(phone, name) {
       });
 
       if (success) {
-        showDashboardToast('success', 'Alert Sent', `Manual advisory successfully queued for ${name}.`);
+        showDashboardToast('success', 'Broadcast Queued', `Manual advisory successfully queued for ${name}. ESP32 Gateway will send it shortly.`);
         logRoleActivity('admin', 'info', `Manual SMS alert sent to ${name}`, 'sms');
         loadSMSUsers();
+        loadSMSHistory(); // Refresh SMS history
       }
     } catch (e) {
       console.error('Manual SMS failed:', e);
@@ -2382,7 +2804,26 @@ async function loadAlerts() {
   // Update badge from unfiltered data so count is consistent across pages
   updateAlertBadge(allAlerts);
 
-  // 3. Apply Category Filter
+  // 3. Filter out broadcast notifications for good conditions and historical failures
+  const currentDevice = devices[0];
+  const currentLevel = currentDevice ? getAlertLevel(currentDevice) : 'normal';
+  
+  allAlerts = allAlerts.filter(a => {
+    // If this is a broadcast (sms category), check if it's relevant
+    if (a.category === 'sms') {
+      // Filter out broadcast failures (these are gateway issues, not actual broadcasts)
+      if (a.msg && a.msg.includes('Broadcast Failure')) {
+        return false;
+      }
+      // Filter out broadcasts that were triggered when condition was good
+      if (a.msg && (a.msg.includes('Good') || a.msg.includes('normal'))) {
+        return false;
+      }
+    }
+    return true;
+  });
+
+  // 4. Apply Category Filter
   let filteredAlerts = [...allAlerts];
   if (categoryFilter !== 'all') {
     filteredAlerts = filteredAlerts.filter(a => {
@@ -2393,7 +2834,7 @@ async function loadAlerts() {
     });
   }
 
-  // 4. Apply Severity Filter
+  // 5. Apply Severity Filter
   if (severityFilter !== 'all') {
     filteredAlerts = filteredAlerts.filter(a => {
       if (severityFilter === 'critical') return a.type === 'danger' || a.type === 'error';
@@ -2403,7 +2844,7 @@ async function loadAlerts() {
     });
   }
 
-  // 5. Apply Sorting
+  // 6. Apply Sorting
   filteredAlerts.sort((a, b) => {
     const dateA = new Date(a.created_at);
     const dateB = new Date(b.created_at);
@@ -2533,17 +2974,26 @@ function initModalMap() {
   const lng = parseFloat(document.getElementById('device-lng').value) || 124.6319;
 
   if (!modalMap) {
-    modalMap = L.map('modal-map').setView([lat, lng], 13);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '© OpenStreetMap'
+    modalMap = L.map('modal-map', {
+      attributionControl: false,
+      dragging:           false,
+      scrollWheelZoom:    false,
+      doubleClickZoom:    false,
+      touchZoom:          false,
+      boxZoom:            false,
+      keyboard:           false
+    }).setView([lat, lng], 17);
+    L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+      attribution: 'Tiles \u00a9 Esri'
     }).addTo(modalMap);
 
+    // Click on map to pick coordinates
     modalMap.on('click', (e) => {
       const { lat, lng } = e.latlng;
       updateModalMap(lat, lng);
     });
   } else {
-    modalMap.setView([lat, lng], 13);
+    modalMap.setView([lat, lng], 17);
     modalMap.invalidateSize();
   }
 
@@ -2761,6 +3211,7 @@ function saveSettings() {
   if (table) DB_TABLES.readings = table;
   systemActivity.unshift({ type: 'success', msg: 'Settings saved successfully', time: 'Just now' });
   logRoleActivity('admin', 'success', 'Updated system settings');
+  showDashboardToast('success', 'Settings Saved', 'System configuration has been updated successfully.');
   loadOverview();
 }
 
@@ -2770,6 +3221,7 @@ function saveThresholds() {
   const unhealthy = parseInt(document.getElementById('threshold-unhealthy')?.value);
   systemActivity.unshift({ type: 'success', msg: 'AQI thresholds updated', time: 'Just now' });
   logRoleActivity('admin', 'success', `Updated AQI thresholds: Good<=${good}, Moderate<=${moderate}, Unhealthy<=${unhealthy}`);
+  showDashboardToast('success', 'Thresholds Updated', 'AQI alert thresholds have been updated successfully.');
   loadOverview();
 }
 
@@ -2908,10 +3360,13 @@ async function checkAndTriggerSMSNotifications(currentAQI) {
     const smsSettings = JSON.parse(localStorage.getItem('smsSettings') || '{}');
     const cooldownMinutes = smsSettings.cooldown || 30;
     const cooldownMs = cooldownMinutes * 60 * 1000;
+    let broadcastsQueued = 0;
+    
     for (const user of users) {
       const currentDevice = devices[0];
       const level = getAlertLevel(currentDevice);
-      if (currentAQI > user.aqi_threshold && level !== 'normal') {
+      // Only trigger SMS for moderate, high, or danger - NOT for normal (good)
+      if (currentAQI > user.aqi_threshold && (level === 'moderate' || level === 'high' || level === 'danger')) {
         const lastAlert = user.last_alert ? new Date(user.last_alert) : null;
         const now = new Date();
         if (!lastAlert || (now - lastAlert) > cooldownMs) {
@@ -2920,11 +3375,23 @@ async function checkAndTriggerSMSNotifications(currentAQI) {
           await Database.logSMSNotification({ user_id: user.id, phone_number: user.phone_number, message, aqi_value: currentAQI, status: 'pending' });
           trackUserStat(activeSessionUserId, 'smsSent', 1);
           await Database.updateUserLastAlert(user.id);
+          broadcastsQueued++;
           console.log(`📤 SMS notification queued for ${user.name} (${user.phone_number}): ${level.toUpperCase()} alert`);
           logRoleActivity('system', 'warn', `Broadcast: ${level.toUpperCase()} alert queued for ${user.name} (${user.phone_number})`, 'sms');
         } else {
           console.log(`⏳ SMS cooldown active for ${user.name} - skipping`);
         }
+      } else {
+        console.log(`⏭️ Skipping SMS for ${user.name}: AQI=${currentAQI}, threshold=${user.aqi_threshold}, level=${level}`);
+      }
+    }
+    
+    // Show toast notification if broadcasts were queued
+    if (broadcastsQueued > 0) {
+      showDashboardToast('success', 'Broadcasts Queued', `${broadcastsQueued} SMS alert(s) queued for delivery by ESP32 Gateway.`);
+      // Refresh SMS history if on overview page
+      if (document.body.dataset.page === 'overview') {
+        loadSMSHistory();
       }
     }
   } catch (error) {
@@ -2934,45 +3401,66 @@ async function checkAndTriggerSMSNotifications(currentAQI) {
 
 async function checkStaleSMS() {
   try {
+    // First strike: pending SMS older than 5 minutes with no prior warning
     const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
-    
-    // Fetch pending SMS created more than 5 minutes ago
-    const response = await fetch(`${DB_CONFIG.url}/rest/v1/${DB_TABLES.smsNotifications}?status=eq.pending&created_at=lt.${fiveMinutesAgo}`, {
-      headers: { 'apikey': DB_CONFIG.anonKey, 'Authorization': `Bearer ${DB_CONFIG.anonKey}` }
-    });
-    
-    const staleSMS = await response.json();
-    if (staleSMS && staleSMS.length > 0) {
-      for (const sms of staleSMS) {
-        // 1. Update status to failed in DB
+    const tenMinutesAgo  = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+
+    const headers = { 'apikey': DB_CONFIG.anonKey, 'Authorization': `Bearer ${DB_CONFIG.anonKey}` };
+
+    // --- STRIKE 1: Warn pending SMS that have been waiting > 5 min (no error_message yet) ---
+    const strike1Res = await fetch(
+      `${DB_CONFIG.url}/rest/v1/${DB_TABLES.smsNotifications}?status=eq.pending&created_at=lt.${fiveMinutesAgo}&error_message=is.null`,
+      { headers }
+    );
+    const strike1List = await strike1Res.json();
+    if (strike1List && strike1List.length > 0) {
+      for (const sms of strike1List) {
+        // Set warning (first strike) — do NOT mark failed yet
         await fetch(`${DB_CONFIG.url}/rest/v1/${DB_TABLES.smsNotifications}?id=eq.${sms.id}`, {
           method: 'PATCH',
-          headers: { 
-            'apikey': DB_CONFIG.anonKey, 
-            'Authorization': `Bearer ${DB_CONFIG.anonKey}`,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({ 
-            status: 'failed', 
-            error_message: 'Gateway Timeout: GSM module failed to broadcast within 5 minutes' 
+          headers: { ...headers, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ error_message: 'Gateway Warning: No confirmation after 5 minutes. Retrying...' })
+        });
+        console.log(`⚠️ SMS to ${sms.phone_number}: First strike — no confirmation yet. Keeping as pending.`);
+      }
+    }
+
+    // --- STRIKE 2: Fail pending SMS that already have a warning AND are older than 10 min ---
+    const strike2Res = await fetch(
+      `${DB_CONFIG.url}/rest/v1/${DB_TABLES.smsNotifications}?status=eq.pending&created_at=lt.${tenMinutesAgo}&error_message=not.is.null`,
+      { headers }
+    );
+    const strike2List = await strike2Res.json();
+    if (strike2List && strike2List.length > 0) {
+      const currentDevice = devices[0];
+      const currentLevel = currentDevice ? getAlertLevel(currentDevice) : 'normal';
+
+      for (const sms of strike2List) {
+        // Second strike — mark as failed
+        await fetch(`${DB_CONFIG.url}/rest/v1/${DB_TABLES.smsNotifications}?id=eq.${sms.id}`, {
+          method: 'PATCH',
+          headers: { ...headers, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            status: 'failed',
+            error_message: 'Gateway Timeout: GSM module failed to broadcast after 2 attempts (10 min)'
           })
         });
+        console.log(`❌ SMS to ${sms.phone_number}: Second strike — marked FAILED.`);
 
-        // Only log activity and show toasts if the system is actually online
-        // If we're already offline, we don't need to be told again that broadcasts are failing
-        if (!window.isSystemOffline) {
-          // 2. Log system alert
-          logRoleActivity('system', 'danger', `Broadcast Failure: Awareness advisory to ${sms.phone_number} timed out. Gateway offline?`, 'sms');
-          
-          // 3. Show Toast for Admin Awareness
-          showDashboardToast('error', 'Awareness Alert Failed', `The GSM gateway failed to send an advisory to ${sms.phone_number}. Please check hardware connectivity.`);
+        if (!window.isSystemOffline && (currentLevel === 'moderate' || currentLevel === 'high' || currentLevel === 'danger')) {
+          logRoleActivity('system', 'danger', `Broadcast Failure: Advisory to ${sms.phone_number} failed after 2 attempts. Gateway offline?`, 'sms');
         }
       }
-      
-      // Refresh alerts list if we are on the alerts page
+
+      // Refresh alerts page if active
       if (document.body.dataset.page === 'alerts') {
         console.log('🔄 SMS Fallback: Refreshing Alert Page...');
         loadAlerts();
+      }
+
+      // Refresh SMS history on users or overview pages
+      if (document.body.dataset.page === 'users' || document.body.dataset.page === 'overview') {
+        loadSMSHistory();
       }
     }
   } catch (error) {

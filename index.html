@@ -158,6 +158,7 @@ html, body { height: 100%; overflow: hidden; font-family: var(--font); backgroun
     <div class="topbar-right">
       <div class="live-dot" title="Live data"></div>
       <span style="font-size:11px;color:var(--text3)">Live</span>
+      <button class="login-btn" style="background:linear-gradient(135deg,#22c55e,#16a34a);box-shadow:0 2px 8px rgba(34,197,94,0.3);" onclick="showSMSRegister()">📲 Get SMS Alerts</button>
       <button class="login-btn" onclick="showLogin()">🔐 Sign In</button>
     </div>
   </header>
@@ -269,6 +270,55 @@ html, body { height: 100%; overflow: hidden; font-family: var(--font); backgroun
   </div>
 </div>
 
+<!-- SMS REGISTER MODAL -->
+<div id="smsRegModal" class="login-modal" onclick="if(event.target===this)hideSMSRegister()">
+  <div class="login-container" style="max-width:440px;position:relative;">
+    <button onclick="hideSMSRegister()" style="position:absolute;top:16px;right:16px;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.12);border-radius:8px;color:var(--text2);cursor:pointer;font-size:16px;width:32px;height:32px;display:flex;align-items:center;justify-content:center;z-index:10;">✕</button>
+    <div class="login-header" style="padding:28px 32px 20px;">
+      <div style="font-size:40px;margin-bottom:10px;">📲</div>
+      <div class="login-title">Get SMS Air Quality Alerts</div>
+      <div class="login-subtitle">Register once — get notified automatically when campus air quality is poor</div>
+    </div>
+    <div class="login-body" style="padding:20px 32px 32px;">
+      <div class="login-form-group">
+        <label class="login-label">Your Full Name</label>
+        <input type="text" id="reg-name" class="login-input" placeholder="e.g. Juan dela Cruz" autocomplete="name">
+      </div>
+      <div class="login-form-group">
+        <label class="login-label">Mobile Number</label>
+        <input type="tel" id="reg-phone" class="login-input" placeholder="+63XXXXXXXXXX" autocomplete="tel">
+        <div style="font-size:11px;color:var(--text3);margin-top:5px;">Philippine format: +63 followed by 10 digits</div>
+      </div>
+      <!-- AQI threshold is fixed at 100, not shown to user -->
+      <div class="login-form-group" style="margin-bottom:8px;">
+        <label style="display:flex;align-items:center;gap:10px;cursor:pointer;padding:10px 12px;border-radius:10px;border:1px solid var(--border);background:rgba(255,255,255,0.02);">
+          <input type="checkbox" id="reg-location" style="width:18px;height:18px;accent-color:var(--accent);cursor:pointer;flex-shrink:0;">
+          <div>
+            <div style="font-size:13px;color:var(--text2);font-weight:500;">📍 Share my location</div>
+            <div style="font-size:11px;color:var(--text3);margin-top:2px;">Allows us to send location-based advisories</div>
+          </div>
+        </label>
+      </div>
+      <div id="reg-error" style="display:none;padding:10px 14px;border-radius:8px;background:rgba(239,68,68,0.12);border:1px solid rgba(239,68,68,0.25);color:#fca5a5;font-size:13px;margin-bottom:14px;"></div>
+      <button id="reg-submit-btn" onclick="registerPublicSMSUser()" class="login-submit" style="background:linear-gradient(135deg,#22c55e,#16a34a);box-shadow:0 4px 14px rgba(34,197,94,0.3);">📲 Register for Alerts</button>
+      <div class="login-cancel" style="margin-top:16px;">
+        <button onclick="hideSMSRegister()" class="login-cancel-btn">No thanks, cancel</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- PUBLIC TOAST -->
+<div id="pub-toast" style="position:fixed;bottom:24px;right:24px;z-index:99999;display:none;min-width:280px;max-width:360px;background:var(--bg2);border:1px solid var(--border2);border-radius:14px;padding:14px 18px;box-shadow:0 8px 32px rgba(0,0,0,0.4);animation:slideUp 0.3s ease-out;">
+  <div style="display:flex;align-items:center;gap:10px;">
+    <span id="pub-toast-icon" style="font-size:20px;">✅</span>
+    <div>
+      <div id="pub-toast-title" style="font-size:13px;font-weight:700;"></div>
+      <div id="pub-toast-msg" style="font-size:12px;color:var(--text2);margin-top:2px;"></div>
+    </div>
+  </div>
+</div>
+
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="config.js"></script>
 <script>
@@ -371,9 +421,9 @@ function aqiLabel(aqi) {
 let map, marker;
 
 function initMap() {
-  map = L.map('map').setView([8.4542, 124.6319], 15);
+  map = L.map('map', { attributionControl: false }).setView([8.4542, 124.6319], 15);
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '© OpenStreetMap', maxZoom: 19
+    attribution: '', maxZoom: 19
   }).addTo(map);
   
   // Add device marker
@@ -689,6 +739,115 @@ async function handleLogin(event) {
 }
 
 // ═══════════════════════════════════════════
+// SMS REGISTRATION FUNCTIONS
+// ═══════════════════════════════════════════
+function showSMSRegister() {
+  document.getElementById('smsRegModal').classList.add('active');
+  document.getElementById('reg-error').style.display = 'none';
+}
+
+function hideSMSRegister() {
+  document.getElementById('smsRegModal').classList.remove('active');
+  document.getElementById('reg-name').value = '';
+  document.getElementById('reg-phone').value = '';
+  document.getElementById('reg-location').checked = false;
+  document.getElementById('reg-error').style.display = 'none';
+}
+
+function showPubToast(icon, title, msg, duration = 4000) {
+  const toast = document.getElementById('pub-toast');
+  document.getElementById('pub-toast-icon').textContent = icon;
+  document.getElementById('pub-toast-title').textContent = title;
+  document.getElementById('pub-toast-msg').textContent = msg;
+  toast.style.display = 'block';
+  setTimeout(() => { toast.style.display = 'none'; }, duration);
+}
+
+async function registerPublicSMSUser() {
+  const name     = document.getElementById('reg-name').value.trim();
+  const phone    = document.getElementById('reg-phone').value.trim();
+  const threshold = 100; // Always default — not exposed to user
+  const wantsLoc = document.getElementById('reg-location').checked;
+  const errEl     = document.getElementById('reg-error');
+  const btn       = document.getElementById('reg-submit-btn');
+
+  errEl.style.display = 'none';
+
+  if (!name) {
+    errEl.textContent = 'Please enter your full name.';
+    errEl.style.display = 'block'; return;
+  }
+  const phoneRegex = /^\+63[0-9]{10}$/;
+  if (!phoneRegex.test(phone)) {
+    errEl.textContent = 'Enter a valid Philippine number: +63XXXXXXXXXX';
+    errEl.style.display = 'block'; return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = 'Registering...';
+
+  try {
+    // Optionally get geolocation
+    let userLat = null, userLng = null;
+    if (wantsLoc && navigator.geolocation) {
+      try {
+        const pos = await new Promise((res, rej) =>
+          navigator.geolocation.getCurrentPosition(res, rej, { timeout: 8000 })
+        );
+        userLat = pos.coords.latitude;
+        userLng = pos.coords.longitude;
+      } catch (e) {
+        console.warn('Geolocation denied or unavailable:', e.message);
+      }
+    }
+
+    const payload = {
+      name,
+      phone_number: phone,
+      aqi_threshold: threshold,
+      is_active: true,
+      device_id: 'AW-001'
+    };
+
+    const res = await fetch(
+      `${DB_CONFIG.url}/rest/v1/${DB_TABLES.notificationUsers}`,
+      {
+        method: 'POST',
+        headers: {
+          'apikey': DB_CONFIG.anonKey,
+          'Authorization': `Bearer ${DB_CONFIG.anonKey}`,
+          'Content-Type': 'application/json',
+          'Prefer': 'return=minimal'
+        },
+        body: JSON.stringify(payload)
+      }
+    );
+
+    if (res.status === 201 || res.status === 200 || res.status === 204) {
+      hideSMSRegister();
+      const locMsg = (userLat && userLng)
+        ? ` Location recorded (${userLat.toFixed(4)}, ${userLng.toFixed(4)}).`
+        : '';
+      showPubToast('✅', 'Registered!', `You'll receive SMS alerts when AQI exceeds ${threshold}.${locMsg}`);
+    } else if (res.status === 409) {
+      errEl.textContent = 'This phone number is already registered.';
+      errEl.style.display = 'block';
+    } else {
+      const errText = await res.text().catch(() => res.statusText);
+      errEl.textContent = `Registration failed: ${errText || 'Unknown error'}`;
+      errEl.style.display = 'block';
+    }
+  } catch (e) {
+    errEl.textContent = 'Connection error. Please try again.';
+    errEl.style.display = 'block';
+    console.error('SMS registration error:', e);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '📲 Register for Alerts';
+  }
+}
+
+// ═══════════════════════════════════════════
 // INITIALIZATION
 // ═══════════════════════════════════════════
 async function initializeDashboard() {
@@ -702,6 +861,7 @@ async function initializeDashboard() {
 // Start the dashboard
 // Initialize map after first data fetch so markers/layers exist before sizing.
 initializeDashboard();
+
 </script>
 </body>
 </html>

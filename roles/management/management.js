@@ -3,7 +3,7 @@
 // ═══════════════════════════════════════════
 const DB_CONFIG = window.CONFIG?.database || {
   url: 'https://hqptxgzpzuhsrybuyjoy.supabase.co',
-  anonKey: 'sb_publishable_Vn85SyMOd3cToHzCliO5Jg_AX2BO_xY',
+  anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhxcHR4Z3pwenVoc3J5YnV5am95Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM3MjEyNjEsImV4cCI6MjA4OTI5NzI2MX0.0B7ESA_2W7P3iHsT9Og9oAtj59I8EpyHPNAlQie_kus',
   table: 'air_quality_readings',
   refreshInterval: 30000,
   fetchLimit: 10
@@ -285,27 +285,21 @@ function formatTimeAgo(isoString) {
 }
 
 function aqiColor(aqi) {
-  if (aqi <= 50) return '#22c55e';
-  if (aqi <= 100) return '#f59e0b';
-  if (aqi <= 150) return '#f97316';
-  if (aqi <= 200) return '#ef4444';
-  return '#a855f7';
+  if (aqi <= 700) return '#22c55e';
+  if (aqi <= 1500) return '#f59e0b';
+  return '#ef4444';
 }
 
 function aqiClass(aqi) {
-  if (aqi <= 50) return 'aqi-good';
-  if (aqi <= 100) return 'aqi-moderate';
-  if (aqi <= 150) return 'aqi-unhealthy';
-  if (aqi <= 200) return 'aqi-very';
-  return 'aqi-hazardous';
+  if (aqi <= 700) return 'aqi-good';
+  if (aqi <= 1500) return 'aqi-moderate';
+  return 'aqi-unhealthy';
 }
 
 function aqiLabel(aqi) {
-  if (aqi <= 50) return 'Good';
-  if (aqi <= 100) return 'Moderate';
-  if (aqi <= 150) return 'Unhealthy';
-  if (aqi <= 200) return 'Very Unhealthy';
-  return 'Hazardous';
+  if (aqi <= 700) return 'Good';
+  if (aqi <= 1500) return 'Moderate';
+  return 'Unhealthy';
 }
 
 function componentStatusFromLatestReading(device, latest) {
@@ -516,9 +510,14 @@ function getSelectedDeviceId() {
 function initManagementMap() {
   const container = document.getElementById('device-management-map');
   if (!container || managementMap) return;
-  managementMap = L.map('device-management-map').setView([8.4542, 124.6319], 13);
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '&copy; OpenStreetMap contributors',
+  
+  const device = devices[0];
+  const centerLat = device?.lat || 8.4542;
+  const centerLng = device?.lng || 124.6319;
+  
+  managementMap = L.map('device-management-map', { attributionControl: false }).setView([centerLat, centerLng], 13);
+  L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+    attribution: 'Tiles © Esri',
     maxZoom: 19
   }).addTo(managementMap);
   // Allow container to settle before measuring size
@@ -613,6 +612,7 @@ async function renderDeviceDetails(dev) {
               : dev.co2 ?? null;
   const nh3   = latest?.nh3_ppm     != null ? Number(latest.nh3_ppm).toFixed(2) : '--';
   const benz  = latest?.benzene_ppm != null ? Number(latest.benzene_ppm).toFixed(3) : '--';
+  const alcohol = latest?.alcohol_ppm != null ? Number(latest.alcohol_ppm).toFixed(2) : '--';
   const lat   = latest?.latitude    ?? dev.lat;
   const lng   = latest?.longitude   ?? dev.lng;
 
@@ -644,6 +644,10 @@ async function renderDeviceDetails(dev) {
       <div style="background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:var(--radius);padding:12px 14px;">
         <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px;">Benzene</div>
         <div style="font-size:26px;font-weight:700;font-family:var(--mono);color:var(--text);">${benz}<span style="font-size:13px;font-weight:400;color:var(--text2);">ppm</span></div>
+      </div>
+      <div style="background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:var(--radius);padding:12px 14px;">
+        <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px;">Alcohol</div>
+        <div style="font-size:26px;font-weight:700;font-family:var(--mono);color:var(--text);">${alcohol}<span style="font-size:13px;font-weight:400;color:var(--text2);">ppm</span></div>
       </div>
     </div>
 
@@ -776,23 +780,46 @@ async function loadAllDevices() {
     console.log('📊 loadAllDevices: dbDevices =', dbDevices);
     if (dbDevices && dbDevices.length > 0) {
       const defaultDevice = devices[0] || { aqi:0, co2:0, temp:0, hum:0, battery:100, lastSeen:'Just now', alerts:0 };
-      devices = dbDevices.map((d, i) => ({
-        id: d.device_id,
-        name: d.name,
-        location: d.location,
-        lat: d.latitude || 8.4542,
-        lng: d.longitude || 124.6319,
-        status: d.status,
+      
+      // Auto-detect GPS from latest readings for each device
+      const devicesWithGPS = await Promise.all(dbDevices.map(async (d) => {
+        const latestReading = await Database.getLatestDeviceLocation(d.device_id);
+        const lat = latestReading?.latitude ? parseFloat(latestReading.latitude) : (d.latitude || 8.4542);
+        const lng = latestReading?.longitude ? parseFloat(latestReading.longitude) : (d.longitude || 124.6319);
+        
+        if (latestReading?.latitude && latestReading?.longitude) {
+          console.log(`📍 Auto-detected GPS for ${d.device_id}: ${lat}, ${lng}`);
+        }
+        
+        return {
+          id: d.device_id,
+          name: d.name,
+          location: d.location,
+          lat: lat,
+          lng: lng,
+          status: d.status,
+          aqi: 0,
+          temp: 0,
+          hum: 0,
+          co2: 0,
+          battery: 100,
+          lastSeen: 'Never',
+          threshold: 100,
+          alerts: 0
+        };
+      }));
+      
+      devices = devicesWithGPS.map((d, i) => ({
+        ...d,
         aqi: i === 0 ? defaultDevice.aqi : 0,
         temp: i === 0 ? defaultDevice.temp : 0,
         hum: i === 0 ? defaultDevice.hum : 0,
         co2: i === 0 ? defaultDevice.co2 : 0,
         battery: i === 0 ? defaultDevice.battery : 100,
-        lastSeen: i === 0 ? defaultDevice.lastSeen : 'Never',
-        threshold: 100,
-        alerts: 0
+        lastSeen: i === 0 ? defaultDevice.lastSeen : 'Never'
       }));
-      console.log('✅ Devices loaded from DB:', devices.length);
+      
+      console.log('✅ Devices loaded from DB with GPS:', devices.length);
     } else {
       console.warn('⚠️ DB returned 0 devices — using default');
     }

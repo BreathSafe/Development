@@ -155,6 +155,12 @@ CREATE POLICY "allow_anon_update_users"
   TO anon
   USING (true);
 
+CREATE POLICY "allow_anon_delete_users"
+  ON notification_users
+  FOR DELETE
+  TO anon
+  USING (true);
+
 -- 14. RLS Policies for sms_notifications
 CREATE POLICY "allow_anon_select_sms"
   ON sms_notifications
@@ -167,6 +173,18 @@ CREATE POLICY "allow_anon_insert_sms"
   FOR INSERT
   TO anon
   WITH CHECK (true);
+
+CREATE POLICY "allow_anon_update_sms"
+  ON sms_notifications
+  FOR UPDATE
+  TO anon
+  USING (true);
+
+CREATE POLICY "allow_anon_delete_sms"
+  ON sms_notifications
+  FOR DELETE
+  TO anon
+  USING (true);
 
 -- 15. RLS Policies for devices
 CREATE POLICY "allow_anon_select_devices"
